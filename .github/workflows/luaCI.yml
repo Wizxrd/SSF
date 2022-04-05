@@ -1,0 +1,26 @@
+name: Lua CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+jobs:
+
+  lua-build:
+    name: Lua Linter
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Luacheck
+        run: |
+          sudo apt-get install luarocks
+          sudo luarocks install luacheck
+          
+      - name: Checkout Code
+        uses: actions/checkout@v2
+        
+      - name: Lint Lua Code Base
+      # Lua Linter with no checks on line length and shadowing declarations
+        run: sudo luacheck ./ -u --no-max-line-length --ignore 4.2
