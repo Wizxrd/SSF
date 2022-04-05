@@ -2061,6 +2061,85 @@ function handler:onEvent(event)
     if not success then util:logError(self.debug, "ERROR IN onEvent : %s", tostring(err)) end
 end
 
+--[[
+
+@class #search
+
+@authors Wizard
+
+@description
+search for a collection of objects to call functions on as a whole.
+
+@features
+
+@created Apr 5, 2022
+
+]]
+
+search = {}
+search.debug = true
+
+function search:new()
+    local self = util:inherit(self, handler:new())
+    self.filters = {}
+    self.searchFor = nil
+    return self
+end
+
+function search:searchBySubString(subString)
+    self.filters.subString = subString
+    return self
+end
+
+function search:searchByPrefix(prefix)
+    self.filters.prefix = prefix
+    return self
+end
+
+function search:searchByCoalition(coalition)
+    self.filters.coalition = coalition
+    return self
+end
+
+function search:searchByCountry(countryId)
+    self.filters.country = countryId
+    return self
+end
+
+function search:searchByCategory(category)
+    self.filters.category = category
+    return self
+end
+
+function search:searchForGroupsOnce()
+    local groups = {}
+    for filterType, filterValue in pairs(self.filters) do
+        for groupName, _ in pairs(groupsByName) do
+            if filterType == "subString" then
+                if string.find(groupName, filterValue) then
+                    groups[#groups+1] = group:getByName(groupName)
+                end
+            elseif filterType == "prefix" then
+                local pfx = string.find(groupName, filterValue, 1, true)
+                if pfx == 1 then
+                    groups[#groups+1] = group:getByName(groupName)
+                end
+            elseif filterType == "coalition" then
+            elseif filterType == "category" then
+            elseif filterType == "country" then
+            end
+        end
+        return groups
+    end
+    return self
+end
+
+function search:searchForGroupsRepeated(timer)
+    -- repeated search that refreshes and populates self.groups so it can be directly accessed
+end
+
+
+
 --
 --
 -- ** Classes : AI **
@@ -3661,3 +3740,9 @@ end
 util:logInfo(debugger, "successfully loaded SSF v%d.%d.%d", major, minor, patch)
 
 --[[ QUICK TESTING ARENA ]] -- REMOVE BEFORE PUSH
+--[[
+local searchGroup = search:new():searchByPrefix("EWR"):searchForGroupsOnce()
+for _, group in pairs(searchGroup) do
+    util:logError(true, "%s EXISTS IN SEARCH GROUP", group:getName())
+end
+]]
