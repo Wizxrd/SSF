@@ -2182,16 +2182,16 @@ function search:searchForGroupsOnce()
 
         local cE = os.clock() - cT
         avgCollectionTime = cE
-        util:logError(true, "%s took %0.9f seconds to process", groupName, cE)
+        util:logInfo(self.debug, "%s took %0.9f seconds to process", groupName, cE)
     end
 
     if st then
         local et = os.clock() - st
-        util:logError(true, "Searched For Groups In %0.9f seconds", et)
+        util:logInfo(self.debug, "Searched For Groups In %0.9f seconds", et)
     end
 
     local averageClockTime = avgCollectionTime / clocks
-    util:logError(true, "Average Search Per Group: %0.9f seconds", averageClockTime)
+    util:logInfo(self.debug, "Average Search Per Group: %0.9f seconds", averageClockTime)
     return groups
 end
 
@@ -2242,16 +2242,16 @@ function search:searchForUnitsOnce()
 
         local cE = os.clock() - cS
         avgCollectionTime = cE
-        util:logError(true, "%s took %0.3f seconds to process", unitName, cE)
+        util:logInfo(self.debug, "%s took %0.3f seconds to process", unitName, cE)
     end
 
     if st then
         local et = os.clock() - st
-        util:logError(true, "Searched For Units In %0.3f seconds", et)
+        util:logInfo(self.debug, "Searched For Units In %0.3f seconds", et)
     end
 
     local averageClockTime = avgCollectionTime / clocks
-    util:logError(true, "Average Search Per Unit: %0.3f seconds", averageClockTime)
+    util:logInfo(self.debug, "Average Search Per Unit: %0.3f seconds", averageClockTime)
     return units
 end
 
