@@ -35,4 +35,4 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 - [ ] [unit](./classes/wrappers/unit/README.md)
 - [ ] [static](./classes/wrappers/static/README.md)
 
-For additional help, support, and general questions, checkout the [discord!](https://discord.gg/JNeaNjecXy)
+For additional help and general questions, checkout the community [discord!](https://discord.gg/JNeaNjecXy)
