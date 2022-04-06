@@ -14,23 +14,25 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 ![VSC](https://github.com/sumneko/vscode-lua/raw/master/images//Install%20In%20VSCode.gif)
 
 ## ***Singletons***
-- [ ] [util](./singletons/util/README.md)
+- [X] [util](./singletons/util/README.md)
 
 ## ***Enumerators***
-- [ ] [waypoint](./enumerators/waypoint/README.md)
-- [ ] [weaponFlag](./enumerators/weaponFlag/README.md)
-- [ ] [event](./enumerators/event/README.md)
+- [X] [waypoint](./enumerators/waypoint/README.md)
+- [X] [weaponFlag](./enumerators/weaponFlag/README.md)
+- [X] [event](./enumerators/event/README.md)
 
 ## ***Classes***
 ### ***Main***
 - [ ] [birth](./classes/main/birth/README.md)
-- [ ] [fsm](./classes/main/fsm/README.md)
+- [X] [fsm](./classes/main/fsm/README.md)
 - [ ] [handler](./classes/main/handler/README.md)
 
 ### ***Ai***
-- [ ] [element](./classes/ai/element/README.md)
+- [X] [element](./classes/ai/element/README.md)
 
 ### ***Wrappers***
 - [ ] [group](./classes/wrappers/group/README.md)
 - [ ] [unit](./classes/wrappers/unit/README.md)
 - [ ] [static](./classes/wrappers/static/README.md)
+
+For additional help, support, and general questions, checkout the [discord!](https://discord.gg/JNeaNjecXy)
