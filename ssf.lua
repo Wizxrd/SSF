@@ -17,7 +17,7 @@ expert to take advantage of the classes within the framework.
 
 @created Jan 30, 2022
 
-@version 0.0.1
+@version 0.1.6
 
 @todo
 - keep documentation up to date (i fear this will be never ending)
@@ -31,7 +31,7 @@ expert to take advantage of the classes within the framework.
 -- build information
 local major   = 0
 local minor   = 1
-local patch   = 5
+local patch   = 6
 local debugger = true
 
 --
@@ -67,7 +67,9 @@ useful utility functions that help with logging, messages, conversions, table ma
 
 ]]
 
-util = {__index = setmetatable({}, util)}
+util = {}
+util.debug = true
+util.__index = setmetatable({}, util)
 
 --[[ send a message to dcs.log under the prefix of "INFO SSF"
 - @param #string msg [the message to send]
@@ -109,7 +111,7 @@ end
 - @return none
 ]]
 function util:msgToAll(clearview, time, msg, ...)
-    trigger.action.outText(string.format(msg,...), time, clearview or nil)
+    trigger.action.outText(string.format(msg,...), time, clearview)
 end
 
 --[[ send a message to players of a specific coalition
@@ -119,8 +121,8 @@ end
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:msgToCoalition(time, coalition, msg, ...)
-    trigger.action.outTextForCoalition(coalition, string.format(msg,...), time)
+function util:msgToCoalition(clearview, time, coalition, msg, ...)
+    trigger.action.outTextForCoalition(coalition, string.format(msg,...), time, clearview)
 end
 
 --[[ send a message to players of a specific group
@@ -130,8 +132,8 @@ end
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:msgToGroup(time, groupId, msg, ...)
-    trigger.action.outTextForGroup(groupId, string.format(msg,...), time)
+function util:msgToGroup(clearview, time, groupId, msg, ...)
+    trigger.action.outTextForGroup(groupId, string.format(msg,...), time, clearview)
 end
 
 --[[ return the current time of the mission in seconds to 3 decimal places
@@ -792,9 +794,18 @@ local payloadsByUnitName = {}
 
 do
     local st = false
+
     if os then
         st = os.clock()
     end
+
+    local categories = {
+        ["plane"] = 0,
+        ["helicopter"] = 1,
+        ["vehicle"] = 2,
+        ["ship"] = 3,
+    }
+
     for coaSide, coaData in pairs(env.mission.coalition) do
         if coaSide == "neutrals" then coaSide = "neutral" end
         if type(coaData) == "table" then
@@ -803,33 +814,36 @@ do
                     for objType, objData in pairs(ctryData) do
                         if objType == "plane" or objType == "helicopter" or objType == "vehicle" or objType == "ship" then
                             for _, groupData in pairs(objData.group) do
-                                local category = Group.getByName(groupData.name):getUnit(1):getDesc().category
-                                if groupData.lateActivation then
-                                    groupData.lateActivation = false
+                                if groupData and type(groupData.units) == "table" and #groupData.units > 0 then
+                                    local category = categories[objType]
+                                    if groupData.lateActivation then
+                                        groupData.lateActivation = false
+                                    end
+
+                                    groupsByName[groupData.name] = {
+                                        ["name"] = groupData.name,
+                                        ["task"] = groupData.task,
+                                        ["start_time"] = groupData.start_time,
+                                        ["hidden"] = groupData.hidden,
+                                        ["route"] = groupData.route,
+                                        ["uncontrolled"] = groupData.uncontrolled,
+                                        ["modulation"] = groupData.modulation,
+                                        ["frequency"] = groupData.frequency,
+                                        ["communication"] = groupData.communication,
+                                        ["visible"] = groupData.visible,
+                                        ["units"] = groupData.units,
+                                        ["coalition"] = coaSide,
+                                        ["countryId"] = ctryData.id,
+                                        ["category"] = category or false,
+                                    }
+
+                                    for _, unitData in pairs(groupsByName[groupData.name].units) do
+                                        unitData.unitId = nil
+                                        unitData.coalition = coaSide
+                                    end
+
+                                    util:logInfo(debugger, "group database registered group %s into groupsByName", groupData.name)
                                 end
-                                groupsByName[groupData.name] = {
-                                    ["name"] = groupData.name,
-                                    ["task"] = groupData.task,
-                                    --["groupId"] = groupData.groupId,
-                                    ["start_time"] = groupData.start_time,
-                                    ["hidden"] = groupData.hidden,
-                                    ["route"] = groupData.route,
-                                    ["uncontrolled"] = groupData.uncontrolled,
-                                    ["modulation"] = groupData.modulation,
-                                    ["frequency"] = groupData.frequency,
-                                    ["communication"] = groupData.communication,
-                                    ["visible"] = groupData.visible,
-                                    ["units"] = groupData.units,
-                                    ["coalition"] = coaSide,
-                                    ["countryId"] = ctryData.id,
-                                    ["category"] = category or false,
-                                    ["type"] = objType,
-                                }
-                                for _, unitData in pairs(groupsByName[groupData.name].units) do
-                                    unitData.unitId = nil
-                                    unitData.coalition = coaSide
-                                end
-                                util:logInfo(debugger, "group database registered group %s into groupsByName", groupData.name)
                             end
                         elseif objType == "static" then
                             for _, staticData in pairs(objData.group) do
@@ -841,6 +855,22 @@ do
                 end
             end
         end
+    end
+
+    for _, airdrome in pairs(world.getAirbases()) do
+        local airbaseName = airdrome:getName()
+        airbasesByName[airbaseName] = {
+            ["name"] = airbaseName,
+            ["desc"] = airdrome:getDesc(),
+            ["id"] = airdrome:getID(),
+            ["point"] = airdrome:getPoint(),
+            ["category"] = airdrome:getDesc().category,
+        }
+        if Airbase.getUnit(airdrome) then
+            airbasesByName[airbaseName].unitId = Airbase.getUnit(airdrome):getID()
+            util:logInfo(debugger, "airbase database registered airbase *unit* %s into airbasesByName", airbaseName)
+        end
+        util:logInfo(debugger, "airbase database registered airbase unit %s into airbasesByName", airbaseName)
     end
 
     for _, zones in pairs(env.mission.triggers) do
@@ -871,52 +901,45 @@ do
 
     for _, groupData in pairs(groupsByName) do
         for _, unitData in pairs(groupData.units) do
-			unitsByName[unitData.name] = {
-				["name"] = unitData.name,
-				["type"] = unitData.type,
-				["x"] = unitData.x,
-				["y"] = unitData.y,
-				["alt"] = unitData.alt,
-				["alt_type"] = unitData.alt_type,
-				["speed"] = unitData.speed,
-				["payload"] = unitData.payload,
-				["callsign"] = unitData.callsign,
-				["heading"] = unitData.heading,
-				["skill"] = unitData.skill,
-				["livery_id"] = unitData.livery_id,
-				["psi"] = unitData.psi,
-				["onboard_num"] = unitData.onboard_num,
-				["ropeLength"] = unitData.ropeLength,
-				["countryId"] = groupData.countryId,
-                ["groupName"] = groupData.name,
-			}
-			util:logInfo(debugger, "unit database registered unit %s into unitsByName", unitData.name)
-			if unitData.payload then
-				payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
-				util:logInfo(debugger, "payload database registered unit %s into payloadsByUnitName", unitData.name)
-			end
+            util:logWarning(debugger, "%s", unitData.name)
+            if unitData.skill ~= "Client" or unitData.skill ~= "Player" then -- this exception still collects them, it makes no sense
+                unitsByName[unitData.name] = {
+                    ["name"] = unitData.name,
+                    ["type"] = unitData.type,
+                    ["x"] = unitData.x,
+                    ["y"] = unitData.y,
+                    ["alt"] = unitData.alt,
+                    ["alt_type"] = unitData.alt_type,
+                    ["speed"] = unitData.speed,
+                    ["payload"] = unitData.payload,
+                    ["callsign"] = unitData.callsign,
+                    ["heading"] = unitData.heading,
+                    ["playerCanDrive"] = unitData.playerCanDrive,
+                    ["skill"] = unitData.skill,
+                    ["livery_id"] = unitData.livery_id,
+                    ["psi"] = unitData.psi,
+                    ["onboard_num"] = unitData.onboard_num,
+                    ["ropeLength"] = unitData.ropeLength,
+                    ["countryId"] = groupData.countryId,
+                    ["coalition"] = groupData.coalition,
+                    ["category"] = groupData.category,
+                    ["groupName"] = groupData.name
+                }
+                util:logInfo(debugger, "unit database registered unit %s into unitsByName", unitData.name)
+                if unitData.payload then
+                    payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
+                    util:logInfo(debugger, "payload database registered unit %s into payloadsByUnitName", unitData.name)
+                end
+            end
         end
     end
 
     groupsByName = util:deepCopy(groupsByName)
     unitsByName = util:deepCopy(unitsByName)
     staticsByName = util:deepCopy(staticsByName)
+    airbasesByName = util:deepCopy(airbasesByName)
     zonesByName = util:deepCopy(zonesByName)
 	payloadsByUnitName = util:deepCopy(payloadsByUnitName)
-
-    for _, airdrome in pairs(world.getAirbases()) do
-        local airbaseName = airdrome:getName()
-        airbasesByName[airbaseName] = {
-            ["name"] = airbaseName,
-            ["desc"] = airdrome:getDesc(),
-            ["id"] = airdrome:getID(),
-            ["point"] = airdrome:getPoint(),
-            ["category"] = airdrome:getDesc().category,
-        }
-        if Airbase.getUnit(airdrome) then
-            airbasesByName[airbaseName].unitId = Airbase.getUnit(airdrome):getID()
-        end
-    end
 
     if st then
         local et = os.clock() - st
@@ -987,6 +1010,7 @@ function birth:new(groupName)
         self.groupTemplate = nil
         self.countryId = self.birthTemplate.countryId
         self.category = self.birthTemplate.category
+        self.coalition = self.birthTemplate.coalition
         self.keepNames = nil
         self.birthCount = 1
         self.limitEnabled = nil
@@ -1004,6 +1028,8 @@ function birth:new(groupName)
         -- removal from the template
         --self.birthTemplate.countryId = nil
         --self.birthTemplate.category = nil
+        --self.birthTemplate.coalition = nil
+
         return self
     else
         util:logError(self.debug, "%s was not registered into the group database, ensure you have the correct group name and late activation is enabled", groupName)
@@ -2061,6 +2087,143 @@ function handler:onEvent(event)
     if not success then util:logError(self.debug, "ERROR IN onEvent : %s", tostring(err)) end
 end
 
+--[[
+
+@class #search
+
+@authors Wizard
+
+@description
+search for a collection of objects to call functions on as a whole.
+
+@features
+
+@created Apr 5, 2022
+
+]]
+
+search = {}
+search.debug = true
+
+function search:new()
+    local self = util:inherit(self, handler:new())
+    self.groups = {}
+    self.filter = {}
+    return self
+end
+
+function search:searchBySubString(subString)
+    self.filter.subString = subString
+    return self
+end
+
+function search:searchByPrefix(prefix)
+    self.filter.prefix = prefix
+    return self
+end
+
+function search:searchByCoalition(coalition)
+    self.filter.coalition = coalition
+    return self
+end
+
+function search:searchByCountry(countryId)
+    self.filter.country = countryId
+    return self
+end
+
+function search:searchByCategory(category)
+    self.filter.category = category
+    return self
+end
+
+function search:searchForGroupsOnce()
+    local groups = {}
+    for groupName, groupData in pairs(groupsByName) do
+
+        -- filter subStrings
+        if self.filter.subString then
+            if string.find(groupName, self.filter.subString) then
+                util:logWarning(debugger, "%s prefix found!", groupName)
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+
+        -- filter starts with prefix
+        if self.filter.prefix then
+            if string.find(groupName, self.filter.prefix, 1, true) == 1 then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+
+        -- filter coalitions
+        if self.filter.coalition then
+            if groupData.coalition == groupData.coalition then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+
+        -- filter categorys
+        if self.filter.category then
+            if groupData.category == self.filter.category then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+
+        -- filter countrys
+        if self.filter.country then
+            if groupData.countryId == self.filter.country then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+    end
+    return groups
+end
+
+function search:searchForUnitsOnce()
+    local units = {}
+
+    for unitName, unitData in pairs(unitsByName) do
+
+        -- filter subStrings
+        if self.filter.subString then
+            if string.find(unitName, self.filter.subString) then
+                units[#units+1] = unit:getByName(unitName)
+            end
+        end
+
+        -- filter starts with prefix
+        if self.filter.prefix then
+            if string.find(unitName, self.filter.prefix, 1, true) == 1 then
+                units[#units+1] = unit:getByName(unitName)
+            end
+        end
+
+        -- filter coalitions
+        if self.filter.coalition then
+            if unitData.coalition == unitData.coalition then
+                units[#units+1] = unit:getByName(unitName)
+            end
+        end
+
+        -- filter categorys
+        if self.filter.category then
+            if unitData.category == self.filter.category then
+                units[#units+1] = unit:getByName(unitName)
+            end
+        end
+
+        -- filter countrys
+        if self.filter.country then
+            if unitData.countryId == self.filter.country then
+                units[#units+1] = unit:getByName(unitName)
+            end
+        end
+    end
+    return units
+end
+
+
 --
 --
 -- ** Classes : AI **
@@ -2719,8 +2882,15 @@ group.debug = true
 function group:getByName(groupName)
     local self = util:inherit(self, handler:new())
     self.groupName = groupName
-    if groupsByName[groupName] and not self.groupTemplate then
-        self.groupTemplate = util:deepCopy(groupsByName[groupName])
+    if not self.groupTemplate then
+        if groupsByName[groupName] then
+            self.groupTemplate = util:deepCopy(groupsByName[groupName])
+            util:logInfo(self.debug, "%s found in groupsByName, no template was created previously", groupName)
+        else
+            util:logError(self.debug, "%s could not be found in groupsByName", groupName)
+        end
+    else
+        util:logInfo(self.debug, "%s has already created a template, skipping", groupName)
     end
     return self
 end
@@ -2736,7 +2906,8 @@ end
 - @param #enum event [the event that will be triggered for the units within the group, eg: event.land
 - @return #group self]]
 function group:handleEvent(event)
-    self:onGroupEvent(self, event, self:getName())
+    self:onGroupEvent(self, event, self.groupName)
+    util:logInfo(self.debug, "%s is now handling event %s", self.groupName, event.name)
     return self
 end
 
@@ -2747,14 +2918,10 @@ end
 ]]
 function group:getUnit(unitVar)
     if type(unitVar) == "string" then
-        if unit:getByName(unitVar) then
-            return unit:getByName(unitVar)
-        end
+        return unit:getByName(unitVar)
     elseif type(unitVar) == "number" then
         local unitName = self.groupTemplate.units[unitVar].name
-        if unit:getByName(unitName) then
-            return unit:getByName(unitName)
-        end
+        return unit:getByName(unitName)
     end
 end
 
@@ -2983,12 +3150,10 @@ end
 - @return DCS#Group
 ]]
 function group:getDCSGroup()
-    local _group = Group.getByName(self.groupName)
-    if _group ~= nil and _group:isExist() then
-        local dcsGroup = Group.getByName(self.groupName)
-        return dcsGroup
+    if Group.getByName(self.groupName) then
+        return Group.getByName(self.groupName)
     end
-    return nil
+    return self
 end
 
 --[[ get the category from the group object
@@ -2997,7 +3162,10 @@ end
 - @return #enum groupCategory
 ]]
 function group:getCategory()
-    return self:getDCSGroup():getDesc().category
+    if self:getDCSGroup() then
+        return self:getDCSGroup():getDesc().category
+    end
+    return self
 end
 
 --[[ get the coalition from the group object
@@ -3006,7 +3174,10 @@ end
 - @return #number groupCoalition
 ]]
 function group:getCoalition()
-    return self:getDCSGroup():getCoalition()
+    if self:getDCSGroup() then
+        return self:getDCSGroup():getCoalition()
+    end
+    return self
 end
 
 --[[ get the group name from the group object
@@ -3014,10 +3185,7 @@ end
 - @return #string groupName
 ]]
 function group:getName()
-    if self:isAlive() then
-        return self:getDCSGroup():getName()
-    end
-    return nil
+    return self.groupTemplate.name
 end
 
 --[[ get the DCS #Group ID from the group object
@@ -3025,7 +3193,7 @@ end
 - @return #number groupId
 ]]
 function group:getID()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupId = self:getDCSGroup():getID()
         return groupId
     end
@@ -3038,7 +3206,7 @@ end
 - @return DCS#Unit dcsUnit
 ]]
 function group:getDCSUnit(unitId)
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local dcsUnit = self:getDCSGroup():getUnit(unitId)
         return dcsUnit
     end
@@ -3050,7 +3218,7 @@ end
 - #return DCS#Units units
 ]]
 function group:getDCSUnits()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local dcsUnits = self:getDCSGroup():getUnits()
         return dcsUnits
     end
@@ -3062,11 +3230,11 @@ end
 - @return #number groupSize
 ]]
 function group:getSize()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupSize = self:getDCSGroup():getSize()
         return groupSize
     end
-    return nil
+    return 0
 end
 
 --[[ get the inital size of the group object
@@ -3075,7 +3243,7 @@ end
 - @return #number initGroupSize
 ]]
 function group:getInitialSize()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local initGroupSize = self:getDCSGroup():getInitialSize()
         return initGroupSize
     end
@@ -3087,7 +3255,7 @@ end
 - @return DCS#GroupController
 ]]
 function group:getController()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupController = self:getDCSGroup():getController()
         return groupController
     end
@@ -3099,7 +3267,7 @@ end
 - @return #boolean groupExist
 ]]
 function group:isExist()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupExist = self:getDCSGroup():isExist()
         return groupExist
     end
@@ -3124,10 +3292,10 @@ end
 - @return #group self
 ]]
 function group:destroy()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         self:getDCSGroup():destroy()
     end
-    return nil
+    return self
 end
 
 --[[ enable the group object to have its radar emitters on or off
@@ -3136,7 +3304,7 @@ end
 - @return #group self
 ]]
 function group:enableEmission(emission)
-    if self:isAlive() then
+    if self:getDCSGroup() then
         self:getDCSGroup():enableEmission(emission)
         return self
     end

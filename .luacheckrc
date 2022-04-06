@@ -40,5 +40,6 @@ globals = {
     "unit",
     "country",
     "log",
-    "airbase"
+    "airbase",
+    "search"
 }
