@@ -1010,6 +1010,7 @@ function birth:new(groupName)
         self.groupTemplate = nil
         self.countryId = self.birthTemplate.countryId
         self.category = self.birthTemplate.category
+        self.coalition = self.birthTemplate.coalition
         self.keepNames = nil
         self.birthCount = 1
         self.limitEnabled = nil
@@ -1027,6 +1028,8 @@ function birth:new(groupName)
         -- removal from the template
         --self.birthTemplate.countryId = nil
         --self.birthTemplate.category = nil
+        --self.birthTemplate.coalition = nil
+
         return self
     else
         util:logError(self.debug, "%s was not registered into the group database, ensure you have the correct group name and late activation is enabled", groupName)
@@ -3150,7 +3153,7 @@ function group:getDCSGroup()
     if Group.getByName(self.groupName) then
         return Group.getByName(self.groupName)
     end
-    return nil
+    return self
 end
 
 --[[ get the category from the group object
@@ -3159,7 +3162,10 @@ end
 - @return #enum groupCategory
 ]]
 function group:getCategory()
-    return self:getDCSGroup():getDesc().category
+    if self:getDCSGroup() then
+        return self:getDCSGroup():getDesc().category
+    end
+    return self
 end
 
 --[[ get the coalition from the group object
@@ -3168,7 +3174,10 @@ end
 - @return #number groupCoalition
 ]]
 function group:getCoalition()
-    return self:getDCSGroup():getCoalition()
+    if self:getDCSGroup() then
+        return self:getDCSGroup():getCoalition()
+    end
+    return self
 end
 
 --[[ get the group name from the group object
@@ -3184,7 +3193,7 @@ end
 - @return #number groupId
 ]]
 function group:getID()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupId = self:getDCSGroup():getID()
         return groupId
     end
@@ -3197,7 +3206,7 @@ end
 - @return DCS#Unit dcsUnit
 ]]
 function group:getDCSUnit(unitId)
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local dcsUnit = self:getDCSGroup():getUnit(unitId)
         return dcsUnit
     end
@@ -3209,7 +3218,7 @@ end
 - #return DCS#Units units
 ]]
 function group:getDCSUnits()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local dcsUnits = self:getDCSGroup():getUnits()
         return dcsUnits
     end
@@ -3221,11 +3230,11 @@ end
 - @return #number groupSize
 ]]
 function group:getSize()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupSize = self:getDCSGroup():getSize()
         return groupSize
     end
-    return nil
+    return 0
 end
 
 --[[ get the inital size of the group object
@@ -3234,7 +3243,7 @@ end
 - @return #number initGroupSize
 ]]
 function group:getInitialSize()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local initGroupSize = self:getDCSGroup():getInitialSize()
         return initGroupSize
     end
@@ -3246,7 +3255,7 @@ end
 - @return DCS#GroupController
 ]]
 function group:getController()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupController = self:getDCSGroup():getController()
         return groupController
     end
@@ -3258,7 +3267,7 @@ end
 - @return #boolean groupExist
 ]]
 function group:isExist()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         local groupExist = self:getDCSGroup():isExist()
         return groupExist
     end
@@ -3283,10 +3292,10 @@ end
 - @return #group self
 ]]
 function group:destroy()
-    if self:isAlive() then
+    if self:getDCSGroup() then
         self:getDCSGroup():destroy()
     end
-    return nil
+    return self
 end
 
 --[[ enable the group object to have its radar emitters on or off
@@ -3295,7 +3304,7 @@ end
 - @return #group self
 ]]
 function group:enableEmission(emission)
-    if self:isAlive() then
+    if self:getDCSGroup() then
         self:getDCSGroup():enableEmission(emission)
         return self
     end
@@ -3820,6 +3829,3 @@ end
 util:logInfo(debugger, "successfully loaded SSF v%d.%d.%d", major, minor, patch)
 
 --[[ QUICK TESTING ARENA ]] -- REMOVE BEFORE PUSH
-
-local searchGroups = search:new():searchByPrefix("-"):searchForGroupsOnce()
-local searchUnits = search:new():searchByPrefix("-"):searchForUnitsOnce()
