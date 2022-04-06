@@ -2187,11 +2187,11 @@ function search:searchForGroupsOnce()
 
     if st then
         local et = os.clock() - st
-        util:logInfo(self.debug, "Searched For Groups In %0.9f seconds", et)
+        util:logInfo(self.debug, "searched for groups in %0.9f seconds", et)
     end
 
     local averageClockTime = avgCollectionTime / clocks
-    util:logInfo(self.debug, "Average Search Per Group: %0.9f seconds", averageClockTime)
+    util:logInfo(self.debug, "average search per group: %0.9f seconds", averageClockTime)
     return groups
 end
 
@@ -2247,11 +2247,11 @@ function search:searchForUnitsOnce()
 
     if st then
         local et = os.clock() - st
-        util:logInfo(self.debug, "Searched For Units In %0.3f seconds", et)
+        util:logInfo(self.debug, "searched for units in %0.3f seconds", et)
     end
 
     local averageClockTime = avgCollectionTime / clocks
-    util:logInfo(self.debug, "Average Search Per Unit: %0.3f seconds", averageClockTime)
+    util:logInfo(self.debug, "average search per unit: %0.3f seconds", averageClockTime)
     return units
 end
 
