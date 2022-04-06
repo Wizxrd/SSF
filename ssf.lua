@@ -2136,15 +2136,9 @@ end
 
 function search:searchForGroupsOnce()
     local groups = {}
-
-    local st =  os.clock()
-    local clocks = 0
-    local avgCollectionTime = 0
-
     for groupName, groupData in pairs(groupsByName) do
+
         -- filter subStrings
-        local cT = os.clock()
-        clocks = clocks + 1
         if self.filter.subString then
             if string.find(groupName, self.filter.subString) then
                 util:logWarning(debugger, "%s prefix found!", groupName)
@@ -2179,33 +2173,16 @@ function search:searchForGroupsOnce()
                 groups[#groups+1] = group:getByName(groupName)
             end
         end
-
-        local cE = os.clock() - cT
-        avgCollectionTime = cE
-        util:logInfo(self.debug, "%s took %0.9f seconds to process", groupName, cE)
     end
-
-    if st then
-        local et = os.clock() - st
-        util:logInfo(self.debug, "searched for groups in %0.9f seconds", et)
-    end
-
-    local averageClockTime = avgCollectionTime / clocks
-    util:logInfo(self.debug, "average search per group: %0.9f seconds", averageClockTime)
     return groups
 end
 
 function search:searchForUnitsOnce()
     local units = {}
 
-    local st =  os.clock()
-    local clocks = 0
-    local avgCollectionTime = 0
-
     for unitName, unitData in pairs(unitsByName) do
+
         -- filter subStrings
-        local cS = os.clock()
-        clocks = clocks + 1
         if self.filter.subString then
             if string.find(unitName, self.filter.subString) then
                 units[#units+1] = unit:getByName(unitName)
@@ -2239,19 +2216,7 @@ function search:searchForUnitsOnce()
                 units[#units+1] = unit:getByName(unitName)
             end
         end
-
-        local cE = os.clock() - cS
-        avgCollectionTime = cE
-        util:logInfo(self.debug, "%s took %0.3f seconds to process", unitName, cE)
     end
-
-    if st then
-        local et = os.clock() - st
-        util:logInfo(self.debug, "searched for units in %0.3f seconds", et)
-    end
-
-    local averageClockTime = avgCollectionTime / clocks
-    util:logInfo(self.debug, "average search per unit: %0.3f seconds", averageClockTime)
     return units
 end
 
@@ -3855,3 +3820,6 @@ end
 util:logInfo(debugger, "successfully loaded SSF v%d.%d.%d", major, minor, patch)
 
 --[[ QUICK TESTING ARENA ]] -- REMOVE BEFORE PUSH
+
+local searchGroups = search:new():searchByPrefix("-"):searchForGroupsOnce()
+local searchUnits = search:new():searchByPrefix("-"):searchForUnitsOnce()
