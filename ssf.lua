@@ -20,23 +20,553 @@ expert to take advantage of the classes within the framework.
 @version 0.1.6
 
 @todo
-- keep documentation up to date (i fear this will be never ending)
-- document class #handler
-- document enum #event
-- document examples for basically everything >.<
-- element refactored, fine tuned, just needs some thurough testing
 
 ]]
 
 -- build information
 local major   = 0
-local minor   = 1
-local patch   = 6
+local minor   = 2
+local patch   = 0
 local debugger = true
 
 --
 --
--- ** Singletons **
+-- ** local functions ** --
+--
+--
+
+--[[ send a message to dcs.log under the prefix of "INFO SSF"
+- @param #string msg [the message to send]
+- @param #args [any arguments to be formatted into the message]
+- @return none
+]]
+local function logInfo(debug, msg,...)
+    if debug then
+        log.write("SSF", log.INFO, string.format(msg, ...))
+    end
+end
+
+--[[ send a message to dcs.log under the prefix of "WARNING SSF"
+- @param #string msg [the message to send]
+- @param #args [any arguments to be formatted into the message]
+- @return none
+]]
+local function logWarning(debug, msg,...)
+    if debug then
+        log.write("SSF", log.WARNING, string.format(msg, ...))
+    end
+end
+
+--[[ send a message to dcs.log under the prefix of "ERROR SSF"
+- @param #string msg [the message to send]
+- @param #args [any arguments to be formatted into the message]
+- @return none
+]]
+local function logError(debug, msg,...)
+    if debug then
+        log.write("SSF", log.ERROR, string.format(msg, ...))
+    end
+end
+
+--[[ deep copy a table recursively through all levels of the table.
+- this is a mist function reused and can be referenced here: https://wiki.hoggitworld.com/view/MIST_deepCopy
+- @param #table object
+- @return #table object
+]]
+local function deepCopy(object)
+    local lookup_table = {}
+    local function _copy(object)
+        if type(object) ~= "table" then
+            return object
+        elseif lookup_table[object] then
+            return lookup_table[object]
+        end
+        local new_table = {}
+        lookup_table[object] = new_table
+        for index, value in pairs(object) do
+            new_table[_copy(index)] = _copy(value)
+        end
+        return setmetatable(new_table, getmetatable(object))
+    end
+    return _copy(object)
+end
+
+--
+--
+-- ** database initialization **
+--
+--
+
+
+-- the building blocks
+local groupsByName = {}
+local unitsByName = {}
+local staticsByName = {}
+local airbasesByName = {}
+local zonesByName = {}
+local payloadsByUnitName = {}
+
+do
+
+    local st = false
+
+    if os then
+        st = os.clock()
+    end
+
+    local categories = {
+        ["plane"] = 0,
+        ["helicopter"] = 1,
+        ["vehicle"] = 2,
+        ["ship"] = 3,
+    }
+
+    for coaSide, coaData in pairs(env.mission.coalition) do
+        if coaSide == "neutrals" then coaSide = "neutral" end
+        if type(coaData) == "table" then
+            if coaData.country then -- country has data
+                for _, ctryData in pairs(coaData.country) do
+                    for objType, objData in pairs(ctryData) do
+                        if objType == "plane" or objType == "helicopter" or objType == "vehicle" or objType == "ship" then
+                            for _, groupData in pairs(objData.group) do
+                                if groupData and type(groupData.units) == "table" and #groupData.units > 0 then
+                                    local category = categories[objType]
+                                    if groupData.lateActivation then
+                                        groupData.lateActivation = false
+                                    end
+
+                                    groupsByName[groupData.name] = {
+                                        ["name"] = groupData.name,
+                                        ["task"] = groupData.task,
+                                        ["start_time"] = groupData.start_time,
+                                        ["hidden"] = groupData.hidden,
+                                        ["route"] = groupData.route,
+                                        ["uncontrolled"] = groupData.uncontrolled,
+                                        ["modulation"] = groupData.modulation,
+                                        ["frequency"] = groupData.frequency,
+                                        ["communication"] = groupData.communication,
+                                        ["visible"] = groupData.visible,
+                                        ["units"] = groupData.units,
+                                        ["coalition"] = coaSide,
+                                        ["countryId"] = ctryData.id,
+                                        ["category"] = category or false,
+                                    }
+
+                                    for _, unitData in pairs(groupsByName[groupData.name].units) do
+                                        unitData.unitId = nil
+                                        unitData.coalition = coaSide
+                                    end
+
+                                    logInfo(debugger, "group database registered group %s into groupsByName", groupData.name)
+                                end
+                            end
+                        elseif objType == "static" then
+                            for _, staticData in pairs(objData.group) do
+                                staticsByName[staticData.name] = deepCopy(staticData.units[1])
+                                logInfo(debugger, "static database registered static %s into staticsByName", staticData.name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    for _, airdrome in pairs(world.getAirbases()) do
+        local airbaseName = airdrome:getName()
+        airbasesByName[airbaseName] = {
+            ["name"] = airbaseName,
+            ["desc"] = airdrome:getDesc(),
+            ["id"] = airdrome:getID(),
+            ["point"] = airdrome:getPoint(),
+            ["category"] = airdrome:getDesc().category,
+        }
+        if Airbase.getUnit(airdrome) then
+            airbasesByName[airbaseName].unitId = Airbase.getUnit(airdrome):getID()
+            logInfo(debugger, "airbase database registered airbase *unit* %s into airbasesByName", airbaseName)
+        end
+        logInfo(debugger, "airbase database registered airbase unit %s into airbasesByName", airbaseName)
+    end
+
+    for _, zones in pairs(env.mission.triggers) do
+        for _, zoneData in pairs(zones) do
+            zonesByName[zoneData.name] = {
+                ["radius"] = zoneData.radius,
+                ["zoneId"] = zoneData.zoneId,
+                ["color"] =
+                {
+                    [1] = zoneData.color[1],
+                    [2] = zoneData.color[2],
+                    [3] = zoneData.color[3],
+                    [4] = zoneData.color[4],
+                },
+                ["properties"] = zoneData.properties,
+                ["hidden"] = zoneData.hidden,
+                ["y"] = zoneData.y,
+                ["x"] = zoneData.x,
+                ["name"] = zoneData.name,
+                ["type"] = zoneData.type,
+            }
+            logInfo(debugger, "zone database registered trigger zone %s into zonesByName", zoneData.name)
+            if zoneData.type == 2 then
+                zonesByName[zoneData.name].verticies = zoneData.verticies
+            end
+        end
+    end
+
+    for _, groupData in pairs(groupsByName) do
+        for _, unitData in pairs(groupData.units) do
+            if unitData.skill ~= "Client" or unitData.skill ~= "Player" then -- this exception still collects them, it makes no sense
+                unitsByName[unitData.name] = {
+                    ["name"] = unitData.name,
+                    ["type"] = unitData.type,
+                    ["x"] = unitData.x,
+                    ["y"] = unitData.y,
+                    ["alt"] = unitData.alt,
+                    ["alt_type"] = unitData.alt_type,
+                    ["speed"] = unitData.speed,
+                    ["payload"] = unitData.payload,
+                    ["callsign"] = unitData.callsign,
+                    ["heading"] = unitData.heading,
+                    ["playerCanDrive"] = unitData.playerCanDrive,
+                    ["skill"] = unitData.skill,
+                    ["livery_id"] = unitData.livery_id,
+                    ["psi"] = unitData.psi,
+                    ["onboard_num"] = unitData.onboard_num,
+                    ["ropeLength"] = unitData.ropeLength,
+                    ["countryId"] = groupData.countryId,
+                    ["coalition"] = groupData.coalition,
+                    ["category"] = groupData.category,
+                    ["groupName"] = groupData.name
+                }
+                logInfo(debugger, "unit database registered unit %s into unitsByName", unitData.name)
+                if unitData.payload then
+                    payloadsByUnitName[unitData.name] = deepCopy(unitData.payload)
+                    logInfo(debugger, "payload database registered unit %s into payloadsByUnitName", unitData.name)
+                end
+            end
+        end
+    end
+
+    groupsByName = deepCopy(groupsByName)
+    unitsByName = deepCopy(unitsByName)
+    staticsByName = deepCopy(staticsByName)
+    airbasesByName = deepCopy(airbasesByName)
+    zonesByName = deepCopy(zonesByName)
+	payloadsByUnitName = deepCopy(payloadsByUnitName)
+
+    if st then
+        local et = os.clock() - st
+        logInfo(debugger, "DATABASE INITIALIZATION COMPLETED AND TOOK %0.4f SECONDS", et)
+    else
+        logInfo(debugger, "DATABASE INITIALIZATION COMPLETED")
+    end
+end
+
+--
+--
+-- ** enumerators **
+--
+--
+
+--[[
+
+@enum #waypoint
+
+@description
+constant table of waypoint options containting the corresponding type and action
+
+@features
+- coverage of all waypoint options
+
+@created Feb 6, 2022
+
+]]
+
+waypoint = {
+	["turningPoint"]      = {name = "Turning point",            type = "Turning Point",     action = "Turning Point" },
+	["flyOverPoint"]      = {name = "Fly over point",           type = "Turning Point",     action = "Fly Over Point"},
+	["finPoint"]          = {name = "Fin point N/A",            type = "Fin Point",         action = "Fin Point"},
+	["takeoffRunway"]     = {name = "Takeoff from runway",      type = "TakeOff",           action = "From Runway"},
+	["takeoffParking"]	  = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
+	["takeoffParkingHot"] = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
+	["LandingReFuAr"] 	  = {name = "LandingReFuAr",            type = "LandingReFuAr",     action = "LandingReFuAr"},
+
+	["takeoffGround"]	  = {name = "Takeoff from ground", 	    type = "TakeOffGround",     action = "From Ground Area"},
+	["takeoffGroundHot"]  = {name = "Takeoff from ground hot",  type = "TakeOffGroundHot",  action = "From Ground Area Hot"},
+
+	["landing"] 		  = {name = "Landing",                  type = "Land",              action = "Landing"},
+	["offRoad"] 		  = {name = "Offroad",                  type = "Turning Point",     action = "Off Road"},
+	["onRoad"] 		      = {name = "On road",              	type = "Turning Point",     action = "On Road"},
+	["rank"] 			  = {name = "Rank",                     type = "Turning Point",     action = "Rank"},
+	["cone"] 			  = {name = "Cone",                     type = "Turning Point",     action = "Cone"},
+	["vee"] 			  = {name = "Vee",                      type = "Turning Point",     action = "Vee"},
+	["diamond"] 		  = {name = "Diamond",                  type = "Turning Point",     action = "Diamond"},
+	["echelonL"] 		  = {name = "Echelon Left",             type = "Turning Point",     action = "EchelonL"},
+	["echelonR"] 		  = {name = "Echelon Right",            type = "Turning Point",     action = "EchelonR"},
+	["customForm"] 	      = {name = "Custom",                   type = "Turning Point",     action = "Custom"},
+	["onRailroads"] 	  = {name = "On railroads",             type = "On Railroads",      action = "On Railroads"},
+}
+
+--[[
+
+@enum #weaponFlag
+
+@description
+constant table of weaponFlags with corresponding values required for tasking
+
+@features
+- coverage of all weapon flags
+
+@created Feb 6, 2022
+
+]]
+
+weaponFlag = {
+    ["NoWeapon"] = 0,
+
+    -- Bombs
+    ["LGB"] = 2,
+    ["TvGB"] = 4,
+    ["SNSGB"] = 8,
+    ["GuidedBomb"] = 14, -- (LGB + TvGB + SNSGB)
+    ["HEBomb"] = 16,
+    ["Penetrator"] = 32,
+    ["NapalmBomb"] = 64,
+    ["FAEBomb"] = 128,
+    ["ClusterBomb"] = 256,
+    ["Dispencer"] = 512,
+    ["CandleBomb"] = 1024,
+    ["ParachuteBomb"] = 2147483648,
+    ["AnyUnguidedBomb"] = 2147485680, -- (HeBomb + Penetrator + NapalmBomb + FAEBomb + ClusterBomb + Dispencer + CandleBomb + ParachuteBomb)
+    ["AnyBomb"] = 2147485694, -- (GuidedBomb + AnyUnguidedBomb)
+
+    -- Rockets
+    ["LightRocket"] = 2048,
+    ["MarkerRocket"] = 4096,
+    ["CandleRocket"] = 8192,
+    ["HeavyRocket"] = 16384,
+    ["AnyRocket"] = 30720, -- (LightRocket + MarkerRocket + CandleRocket + HeavyRocket)
+
+    -- Missiles
+    ["AntiRadarMissile"] = 32768,
+    ["AntiShipMissile"] = 65536,
+    ["AntiTankMissile"] = 131072,
+    ["FireAndForgetASM"] = 262144,
+    ["LaserASM"] = 524288,
+    ["TeleASM"] = 1048576,
+    ["CruiseMissile"] = 2097152,
+    ["AntiRadarMissile2"] = 1073741824,
+    ["GuidedASM"] = 1572864, -- (LaserASM + TeleASM)
+    ["TacticalASM"] = 1835008, -- (GuidedASM + FireAndForgetASM)
+    ["AnyASM"] = 4161536, -- (AntiRadarMissile + AntiShipMissile + AntiTankMissile + FireAndForgetASM + GuidedASM + CruiseMissile)
+
+    -- AAM
+    ["SRAAM"] = 4194304,
+    ["MRAAM"] = 8388608,
+    ["LRAAM"] = 16777216,
+    ["IR_AAM"] = 33554432,
+    ["SAR_AAM"] = 67108864,
+    ["AR_AAM"] = 134217728,
+    ["AnyAMM"] = 264241152, -- (IR_AAM + SAR_AAM + AR_AAM + SRAAM + MRAAM + LRAAM)
+    ["AnyMissile"] = 268402688, -- (ASM + AnyAAM)
+    ["AnyAutonomousMissile"] = 36012032, -- (IR_AAM + AntiRadarMissile + AntiShipMissile + FireAndForgetASM + CruiseMissile)
+
+    -- Guns
+    ["GUN_POD"] = 268435456,
+    ["BuiltInCannon"] = 536870912,
+    ["Cannons"] = 805306368, -- (GUN_POD + BuiltInCannon)
+
+    -- Torpedo
+    ["Torpedo"] = 4294967296,
+
+    -- Combinations
+    ["AnyAGWeapon"] = 2956984318, -- (BuiltInCannon + GUN_POD + AnyBomb + AnyRocket + AnyASM)
+    ["AnyAAWeapon"] = 264241152, -- (BuiltInCannon + GUN_POD + AnyAAM)
+    ["UnguidedWeapon"] = 2952822768, -- (Cannons + BuiltInCannon + GUN_POD + AnyUnguidedBomb + AnyRocket)
+    ["GuidedWeapon"] = 268402702, -- (GuidedBomb + AnyASM + AnyAAM)
+    ["AnyWeapon"] = 3221225470, -- (AnyBomb + AnyRocket + AnyMissile + Cannons)
+    ["MarkerWeapon"] = 13312, -- (MarkerRocket + CandleRocket + CandleBomb)
+    ["ArmWeapon"] = 3221212158 -- (AnyWeapon - MarkerWeapon)
+}
+
+--[[
+
+@enum event
+
+@description
+constant table for dcs world events. these enums are to be used for handling events with the #handler class
+
+@features
+- coverage of all dcs world events
+
+@created Feb 6, 2022
+
+]]
+
+event = {
+    ["shot"] = {
+        id = world.event.S_EVENT_SHOT,
+        name = "Shot",
+    },
+    ["hit"] = {
+        id = world.event.S_EVENT_HIT,
+        name = "Hit",
+    },
+    ["takeoff"] = {
+        id = world.event.S_EVENT_TAKEOFF,
+        name = "Takeoff",
+    },
+    ["land"] = {
+        id = world.event.S_EVENT_LAND,
+        name = "Land",
+    },
+    ["crash"] = {
+        id = world.event.S_EVENT_CRASH,
+        name = "Crash",
+    },
+    ["ejection"] = {
+        id = world.event.S_EVENT_EJECTION,
+        name = "Ejection",
+    },
+    ["refueling"] = {
+        id = world.event.S_EVENT_REFUELING,
+        name = "Refueling",
+    },
+    ["dead"] = {
+        id = world.event.S_EVENT_DEAD,
+        name = "Dead",
+    },
+    ["pilotDead"] = {
+        id = world.event.S_EVENT_PILOT_DEAD,
+        name = "PilotDead",
+    },
+    ["baseCaptured"] = {
+        id = world.event.S_EVENT_BASE_CAPTURED,
+        name = "BaseCaptured",
+    },
+    ["missionStart"] = {
+        id = world.event.S_EVENT_MISSION_START,
+        name = "MissionStart",
+    },
+    ["missionEnd"] = {
+        id = world.event.S_EVENT_MISSION_END,
+        name = "MissionEnd",
+    },
+    ["tookControl"] = {
+        id = world.event.S_EVENT_TOOK_CONTROL,
+        name = "TookControl",
+    },
+    ["refuelingStop"] = {
+        id = world.event.S_EVENT_REFUELING_STOP,
+        name = "RefuelingStop",
+    },
+    ["birth"] = {
+        id = world.event.S_EVENT_BIRTH,
+        name = "Birth",
+    },
+    ["humanFailure"] = {
+        id = world.event.S_EVENT_HUMAN_FAILURE,
+        name = "HumanFailure",
+    },
+    ["detailedFailure"] = {
+        id = world.event.S_EVENT_DETAILED_FAILURE,
+        name = "DetailedFailure",
+    },
+    ["engineStartup"] = {
+        id = world.event.S_EVENT_ENGINE_STARTUP,
+        name = "EngineStartup",
+    },
+    ["engineShutdown"] = {
+        id = world.event.S_EVENT_ENGINE_SHUTDOWN,
+        name = "EngineShutdown",
+    },
+    ["playerEnterUnit"] = {
+        id = world.event.S_EVENT_PLAYER_ENTER_UNIT,
+        name = "PlayerEnterUnit",
+    },
+    ["playerLeaveUnit"] = {
+        id = world.event.S_EVENT_PLAYER_LEAVE_UNIT,
+        name = "PlayerLeaveUnit",
+    },
+    ["playerComment"] = {
+        id = world.event.S_EVENT_player_comment,
+        name = "PlayerComment",
+    },
+    ["shootingStart"] = {
+        id = world.event.S_EVENT_SHOOTING_START,
+        name = "ShootingStart",
+    },
+    ["shootingEnd"] = {
+        id = world.event.S_EVENT_SHOOTING_END,
+        name = "shootingEnd",
+    },
+    ["markAdded"] = {
+        id = world.event.S_EVENT_MARK_ADDED,
+        name = "MarkAdded",
+    },
+    ["markChanged"] = {
+        id = world.event.S_EVENT_MARK_CHANGE,
+        name = "MarkChanged",
+    },
+    ["markRemove"] = {
+        id = world.event.S_EVENT_MARK_REMOVE,
+        name = "MarkRemove",
+    },
+    ["kill"] = {
+        id = world.event.S_EVENT_KILL,
+        name = "Kill",
+    },
+    ["score"] = {
+        id = world.event.S_EVENT_SCORE,
+        name = "Score",
+    },
+    ["unitLost"] = {
+        id = world.event.S_EVENT_UNIT_LOST,
+        name = "UnitLost",
+    },
+    ["landingAfterEjection"] = {
+        id = world.event.S_EVENT_LANDING_AFTER_EJECTION,
+        name = "LandingAfterEjection",
+    },
+    ["discardChairAfterEjection"] = {
+        id = world.event.S_EVENT_DISCARD_CHAIR_AFTER_EJECTION,
+        name = "DiscardChairAfterEjection",
+    },
+    ["weaponAdd"] = {
+        id = world.event.S_EVENT_WEAPON_ADD,
+        name = "WeaponAdd",
+    },
+    ["landingQualityMark"] = {
+        id = world.event.S_EVENT_LANDING_QUALITY_MARK,
+        name = "LandingQualityMark",
+    },
+}
+
+--[[
+
+@enum smoke
+
+@description
+constant table for smoke marker colors
+
+@features
+- coverage of all 5 smoke colors >.<
+
+@created Feb 20, 2022
+
+]]
+
+smoke = {}
+smoke.green = 0
+smoke.red = 1
+smoke.white = 2
+smoke.orange = 3
+smoke.blue = 4
+
+--
+--
+-- ** classes : main **
 --
 --
 
@@ -68,18 +598,14 @@ useful utility functions that help with logging, messages, conversions, table ma
 ]]
 
 util = {}
-util.debug = true
-util.__index = setmetatable({}, util)
 
 --[[ send a message to dcs.log under the prefix of "INFO SSF"
 - @param #string msg [the message to send]
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:logInfo(debug, msg,...)
-    if debug then
-        log.write("SSF", log.INFO, string.format(msg, ...))
-    end
+function util:logInfo(debug, msg, ...)
+    logInfo(debug, msg, ...)
 end
 
 --[[ send a message to dcs.log under the prefix of "WARNING SSF"
@@ -87,10 +613,8 @@ end
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:logWarning(debug, msg,...)
-    if debug then
-        log.write("SSF", log.WARNING, string.format(msg, ...))
-    end
+function util:logWarning(debug, msg, ...)
+    logWarning(debug, msg, ...)
 end
 
 --[[ send a message to dcs.log under the prefix of "ERROR SSF"
@@ -98,10 +622,8 @@ end
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:logError(debug, msg,...)
-    if debug then
-        log.write("SSF", log.ERROR, string.format(msg, ...))
-    end
+function util:logError(debug, msg, ...)
+    logError(debug, msg, ...)
 end
 
 --[[ send a message to all players
@@ -110,7 +632,7 @@ end
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:msgToAll(clearview, time, msg, ...)
+function util:messageToAll(clearview, time, msg, ...)
     trigger.action.outText(string.format(msg,...), time, clearview)
 end
 
@@ -121,7 +643,7 @@ end
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:msgToCoalition(clearview, time, coalition, msg, ...)
+function util:messageToCoalition(clearview, time, coalition, msg, ...)
     trigger.action.outTextForCoalition(coalition, string.format(msg,...), time, clearview)
 end
 
@@ -132,7 +654,7 @@ end
 - @param #args [any arguments to be formatted into the message]
 - @return none
 ]]
-function util:msgToGroup(clearview, time, groupId, msg, ...)
+function util:messageToGroup(clearview, time, groupId, msg, ...)
     trigger.action.outTextForGroup(groupId, string.format(msg,...), time, clearview)
 end
 
@@ -200,21 +722,7 @@ end
 - @return #table object
 ]]
 function util:deepCopy(object)
-    local lookup_table = {}
-    local function _copy(object)
-        if type(object) ~= "table" then
-            return object
-        elseif lookup_table[object] then
-            return lookup_table[object]
-        end
-        local new_table = {}
-        lookup_table[object] = new_table
-        for index, value in pairs(object) do
-            new_table[_copy(index)] = _copy(value)
-        end
-        return setmetatable(new_table, getmetatable(object))
-    end
-    return _copy(object)
+    return deepCopy(object)
 end
 
 --[[ returns the string value of a variable
@@ -397,7 +905,7 @@ function util:projectPoint(point, dist, theta)
     return newPoint
 end
 
---[[ get the 2D distance between two points in meters
+--[[ return the 2D distance between two points in meters
 - @param #table fromVec3
 - @param #table toVec3
 - @return #number distance
@@ -409,8 +917,8 @@ function util:getDistance(fromVec3, toVec3)
     return distance
 end
 
---[[ get the velocity of a unit in meters per second
-- @param DCS#Unit [the DCS Unit Object to get the velocity for]
+--[[ return the velocity of a unit in meters per second
+- @param DCS#Unit [the DCS Unit Object to return the velocity for]
 - @return #number velocityMPS
 ]]
 function util:getVelocityMPS(unit)
@@ -419,8 +927,8 @@ function util:getVelocityMPS(unit)
     return velocityMPS
 end
 
---[[ get the velocity of a unit in kilometers per hour
-- @param DCS#Unit [the DCS Unit Object to get the velocity for]
+--[[ return the velocity of a unit in kilometers per hour
+- @param DCS#Unit [the DCS Unit Object to return the velocity for]
 - @return #number velocityKMH
 ]]
 function util:getVelocityKMH(unit)
@@ -429,8 +937,8 @@ function util:getVelocityKMH(unit)
     return velocityKMH
 end
 
---[[ get the velocity of a unit in miles per hour
-- @param DCS#Unit [the DCS Unit Object to get the velocity for]
+--[[ return the velocity of a unit in miles per hour
+- @param DCS#Unit [the DCS Unit Object to return the velocity for]
 - @return #number velocityMPH
 ]]
 function util:getVelocityMPH(unit)
@@ -443,17 +951,17 @@ end
 - @param #util self
 - @param #string airbaseName [the airbase name to get parking spots from]
 - @param #array parkingSpots [the parking spots to check for]
-- @return #array parkingSpots [the free parking spots]
+- @return #array freeParking [the free parking spots]
 ]]
 function util:getParkingData(airbaseName, parkingSpots)
     if Airbase.getByName(airbaseName) then
-        local _parkingSpots = {}
+        local freeParking = {}
         local airbase = Airbase.getByName(airbaseName)
         for _, parkingData in pairs(Airbase.getParking(airbase)) do
             for _, parkingSpot in pairs(parkingSpots) do
                 if not parkingData.TO_AC then
                     if parkingData.Term_Index == parkingSpot then
-                        _parkingSpots[#_parkingSpots+1] = {
+                        freeParking[#freeParking+1] = {
                             ["termIndex"] = parkingSpot,
                             ["termVec3"] = parkingData.vTerminalPos
                         }
@@ -461,7 +969,7 @@ function util:getParkingData(airbaseName, parkingSpots)
                 end
             end
         end
-        return _parkingSpots
+        return freeParking
     end
 end
 
@@ -483,969 +991,6 @@ function util:markParkingSpots(airbaseName)
         end
     end
 end
-
---
---
--- ** Enumerators **
---
---
-
---[[
-@enum #waypoint
-
-@description
-constant table of waypoint options containting the corresponding type and action
-
-@features
-- coverage of all waypoint options
-
-@created Feb 6, 2022
-
-]]
-
-waypoint = {
-	["turningPoint"]      = {name = "Turning point",            type = "Turning Point",     action = "Turning Point" },
-	["flyOverPoint"]      = {name = "Fly over point",           type = "Turning Point",     action = "Fly Over Point"},
-	["finPoint"]          = {name = "Fin point N/A",            type = "Fin Point",         action = "Fin Point"},
-	["takeoffRunway"]     = {name = "Takeoff from runway",      type = "TakeOff",           action = "From Runway"},
-	["takeoffParking"]	  = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
-	["takeoffParkingHot"] = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
-	["LandingReFuAr"] 	  = {name = "LandingReFuAr",            type = "LandingReFuAr",     action = "LandingReFuAr"},
-
-	["takeoffGround"]	  = {name = "Takeoff from ground", 	    type = "TakeOffGround",     action = "From Ground Area"},
-	["takeoffGroundHot"]  = {name = "Takeoff from ground hot",  type = "TakeOffGroundHot",  action = "From Ground Area Hot"},
-
-	["landing"] 		  = {name = "Landing",                  type = "Land",              action = "Landing"},
-	["offRoad"] 		  = {name = "Offroad",                  type = "Turning Point",     action = "Off Road"},
-	["onRoad"] 		      = {name = "On road",              	type = "Turning Point",     action = "On Road"},
-	["rank"] 			  = {name = "Rank",                     type = "Turning Point",     action = "Rank"},
-	["cone"] 			  = {name = "Cone",                     type = "Turning Point",     action = "Cone"},
-	["vee"] 			  = {name = "Vee",                      type = "Turning Point",     action = "Vee"},
-	["diamond"] 		  = {name = "Diamond",                  type = "Turning Point",     action = "Diamond"},
-	["echelonL"] 		  = {name = "Echelon Left",             type = "Turning Point",     action = "EchelonL"},
-	["echelonR"] 		  = {name = "Echelon Right",            type = "Turning Point",     action = "EchelonR"},
-	["customForm"] 	      = {name = "Custom",                   type = "Turning Point",     action = "Custom"},
-	["onRailroads"] 	  = {name = "On railroads",             type = "On Railroads",      action = "On Railroads"},
-}
-
---[[
-@enum #weaponFlag
-
-@description
-constant table of weaponFlags with corresponding values required for tasking
-
-@features
-- coverage of all weapon flags
-
-@created Feb 6, 2022
-
-]]
-
-weaponFlag = {
-    ["NoWeapon"] = 0,
-
-    -- Bombs
-    ["LGB"] = 2,
-    ["TvGB"] = 4,
-    ["SNSGB"] = 8,
-    ["GuidedBomb"] = 14, -- (LGB + TvGB + SNSGB)
-    ["HEBomb"] = 16,
-    ["Penetrator"] = 32,
-    ["NapalmBomb"] = 64,
-    ["FAEBomb"] = 128,
-    ["ClusterBomb"] = 256,
-    ["Dispencer"] = 512,
-    ["CandleBomb"] = 1024,
-    ["ParachuteBomb"] = 2147483648,
-    ["AnyUnguidedBomb"] = 2147485680, -- (HeBomb + Penetrator + NapalmBomb + FAEBomb + ClusterBomb + Dispencer + CandleBomb + ParachuteBomb)
-    ["AnyBomb"] = 2147485694, -- (GuidedBomb + AnyUnguidedBomb)
-
-    -- Rockets
-    ["LightRocket"] = 2048,
-    ["MarkerRocket"] = 4096,
-    ["CandleRocket"] = 8192,
-    ["HeavyRocket"] = 16384,
-    ["AnyRocket"] = 30720, -- (LightRocket + MarkerRocket + CandleRocket + HeavyRocket)
-
-    -- Missiles
-    ["AntiRadarMissile"] = 32768,
-    ["AntiShipMissile"] = 65536,
-    ["AntiTankMissile"] = 131072,
-    ["FireAndForgetASM"] = 262144,
-    ["LaserASM"] = 524288,
-    ["TeleASM"] = 1048576,
-    ["CruiseMissile"] = 2097152,
-    ["AntiRadarMissile2"] = 1073741824,
-    ["GuidedASM"] = 1572864, -- (LaserASM + TeleASM)
-    ["TacticalASM"] = 1835008, -- (GuidedASM + FireAndForgetASM)
-    ["AnyASM"] = 4161536, -- (AntiRadarMissile + AntiShipMissile + AntiTankMissile + FireAndForgetASM + GuidedASM + CruiseMissile)
-
-    -- AAM
-    ["SRAAM"] = 4194304,
-    ["MRAAM"] = 8388608,
-    ["LRAAM"] = 16777216,
-    ["IR_AAM"] = 33554432,
-    ["SAR_AAM"] = 67108864,
-    ["AR_AAM"] = 134217728,
-    ["AnyAMM"] = 264241152, -- (IR_AAM + SAR_AAM + AR_AAM + SRAAM + MRAAM + LRAAM)
-    ["AnyMissile"] = 268402688, -- (ASM + AnyAAM)
-    ["AnyAutonomousMissile"] = 36012032, -- (IR_AAM + AntiRadarMissile + AntiShipMissile + FireAndForgetASM + CruiseMissile)
-
-    -- Guns
-    ["GUN_POD"] = 268435456,
-    ["BuiltInCannon"] = 536870912,
-    ["Cannons"] = 805306368, -- (GUN_POD + BuiltInCannon)
-
-    -- Torpedo
-    ["Torpedo"] = 4294967296,
-
-    -- Combinations
-    ["AnyAGWeapon"] = 2956984318, -- (BuiltInCannon + GUN_POD + AnyBomb + AnyRocket + AnyASM)
-    ["AnyAAWeapon"] = 264241152, -- (BuiltInCannon + GUN_POD + AnyAAM)
-    ["UnguidedWeapon"] = 2952822768, -- (Cannons + BuiltInCannon + GUN_POD + AnyUnguidedBomb + AnyRocket)
-    ["GuidedWeapon"] = 268402702, -- (GuidedBomb + AnyASM + AnyAAM)
-    ["AnyWeapon"] = 3221225470, -- (AnyBomb + AnyRocket + AnyMissile + Cannons)
-    ["MarkerWeapon"] = 13312, -- (MarkerRocket + CandleRocket + CandleBomb)
-    ["ArmWeapon"] = 3221212158 -- (AnyWeapon - MarkerWeapon)
-}
-
---[[
-@enum event
-
-@description
-constant table for dcs world events. these enums are to be used for handling events with the #handler class
-
-@features
-- coverage of all dcs world events
-
-@created Feb 6, 2022
-
-]]
-
-event = {
-    ["shot"] = {
-        id = world.event.S_EVENT_SHOT,
-        name = "Shot",
-    },
-    ["hit"] = {
-        id = world.event.S_EVENT_HIT,
-        name = "Hit",
-    },
-    ["takeoff"] = {
-        id = world.event.S_EVENT_TAKEOFF,
-        name = "Takeoff",
-    },
-    ["land"] = {
-        id = world.event.S_EVENT_LAND,
-        name = "Land",
-    },
-    ["crash"] = {
-        id = world.event.S_EVENT_CRASH,
-        name = "Crash",
-    },
-    ["ejection"] = {
-        id = world.event.S_EVENT_EJECTION,
-        name = "Ejection",
-    },
-    ["refueling"] = {
-        id = world.event.S_EVENT_REFUELING,
-        name = "Refueling",
-    },
-    ["dead"] = {
-        id = world.event.S_EVENT_DEAD,
-        name = "Dead",
-    },
-    ["pilotDead"] = {
-        id = world.event.S_EVENT_PILOT_DEAD,
-        name = "PilotDead",
-    },
-    ["baseCaptured"] = {
-        id = world.event.S_EVENT_BASE_CAPTURED,
-        name = "BaseCaptured",
-    },
-    ["missionStart"] = {
-        id = world.event.S_EVENT_MISSION_START,
-        name = "MissionStart",
-    },
-    ["missionEnd"] = {
-        id = world.event.S_EVENT_MISSION_END,
-        name = "MissionEnd",
-    },
-    ["tookControl"] = {
-        id = world.event.S_EVENT_TOOK_CONTROL,
-        name = "TookControl",
-    },
-    ["refuelingStop"] = {
-        id = world.event.S_EVENT_REFUELING_STOP,
-        name = "RefuelingStop",
-    },
-    ["birth"] = {
-        id = world.event.S_EVENT_BIRTH,
-        name = "Birth",
-    },
-    ["humanFailure"] = {
-        id = world.event.S_EVENT_HUMAN_FAILURE,
-        name = "HumanFailure",
-    },
-    ["detailedFailure"] = {
-        id = world.event.S_EVENT_DETAILED_FAILURE,
-        name = "DetailedFailure",
-    },
-    ["engineStartup"] = {
-        id = world.event.S_EVENT_ENGINE_STARTUP,
-        name = "EngineStartup",
-    },
-    ["engineShutdown"] = {
-        id = world.event.S_EVENT_ENGINE_SHUTDOWN,
-        name = "EngineShutdown",
-    },
-    ["playerEnterUnit"] = {
-        id = world.event.S_EVENT_PLAYER_ENTER_UNIT,
-        name = "PlayerEnterUnit",
-    },
-    ["playerLeaveUnit"] = {
-        id = world.event.S_EVENT_PLAYER_LEAVE_UNIT,
-        name = "PlayerLeaveUnit",
-    },
-    ["playerComment"] = {
-        id = world.event.S_EVENT_player_comment,
-        name = "PlayerComment",
-    },
-    ["shootingStart"] = {
-        id = world.event.S_EVENT_SHOOTING_START,
-        name = "ShootingStart",
-    },
-    ["shootingEnd"] = {
-        id = world.event.S_EVENT_SHOOTING_END,
-        name = "shootingEnd",
-    },
-    ["markAdded"] = {
-        id = world.event.S_EVENT_MARK_ADDED,
-        name = "MarkAdded",
-    },
-    ["markChanged"] = {
-        id = world.event.S_EVENT_MARK_CHANGE,
-        name = "MarkChanged",
-    },
-    ["markRemove"] = {
-        id = world.event.S_EVENT_MARK_REMOVE,
-        name = "MarkRemove",
-    },
-    ["kill"] = {
-        id = world.event.S_EVENT_KILL,
-        name = "Kill",
-    },
-    ["score"] = {
-        id = world.event.S_EVENT_SCORE,
-        name = "Score",
-    },
-    ["unitLost"] = {
-        id = world.event.S_EVENT_UNIT_LOST,
-        name = "UnitLost",
-    },
-    ["landingAfterEjection"] = {
-        id = world.event.S_EVENT_LANDING_AFTER_EJECTION,
-        name = "LandingAfterEjection",
-    },
-    ["discardChairAfterEjection"] = {
-        id = world.event.S_EVENT_DISCARD_CHAIR_AFTER_EJECTION,
-        name = "DiscardChairAfterEjection",
-    },
-    ["weaponAdd"] = {
-        id = world.event.S_EVENT_WEAPON_ADD,
-        name = "WeaponAdd",
-    },
-    ["landingQualityMark"] = {
-        id = world.event.S_EVENT_LANDING_QUALITY_MARK,
-        name = "LandingQualityMark",
-    },
-}
-
---[[
-@enum smoke
-
-@description
-constant table for dcs world events. these enums are for smoke marker colors
-
-@features
-
-@created Feb 20, 2022
-
-]]
-
-smoke = {}
-smoke.green = 0
-smoke.red = 1
-smoke.white = 2
-smoke.orange = 3
-smoke.blue = 4
---
---
--- ** Database Initialization **
---
---
-
-local groupsByName = {}
-local unitsByName = {}
-local staticsByName = {}
-local airbasesByName = {}
-local zonesByName = {}
-local payloadsByUnitName = {}
-
-do
-    local st = false
-
-    if os then
-        st = os.clock()
-    end
-
-    local categories = {
-        ["plane"] = 0,
-        ["helicopter"] = 1,
-        ["vehicle"] = 2,
-        ["ship"] = 3,
-    }
-
-    for coaSide, coaData in pairs(env.mission.coalition) do
-        if coaSide == "neutrals" then coaSide = "neutral" end
-        if type(coaData) == "table" then
-            if coaData.country then -- country has data
-                for _, ctryData in pairs(coaData.country) do
-                    for objType, objData in pairs(ctryData) do
-                        if objType == "plane" or objType == "helicopter" or objType == "vehicle" or objType == "ship" then
-                            for _, groupData in pairs(objData.group) do
-                                if groupData and type(groupData.units) == "table" and #groupData.units > 0 then
-                                    local category = categories[objType]
-                                    if groupData.lateActivation then
-                                        groupData.lateActivation = false
-                                    end
-
-                                    groupsByName[groupData.name] = {
-                                        ["name"] = groupData.name,
-                                        ["task"] = groupData.task,
-                                        ["start_time"] = groupData.start_time,
-                                        ["hidden"] = groupData.hidden,
-                                        ["route"] = groupData.route,
-                                        ["uncontrolled"] = groupData.uncontrolled,
-                                        ["modulation"] = groupData.modulation,
-                                        ["frequency"] = groupData.frequency,
-                                        ["communication"] = groupData.communication,
-                                        ["visible"] = groupData.visible,
-                                        ["units"] = groupData.units,
-                                        ["coalition"] = coaSide,
-                                        ["countryId"] = ctryData.id,
-                                        ["category"] = category or false,
-                                    }
-
-                                    for _, unitData in pairs(groupsByName[groupData.name].units) do
-                                        unitData.unitId = nil
-                                        unitData.coalition = coaSide
-                                    end
-
-                                    util:logInfo(debugger, "group database registered group %s into groupsByName", groupData.name)
-                                end
-                            end
-                        elseif objType == "static" then
-                            for _, staticData in pairs(objData.group) do
-                                staticsByName[staticData.name] = util:deepCopy(staticData.units[1])
-                                util:logInfo(debugger, "static database registered static %s into staticsByName", staticData.name)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    for _, airdrome in pairs(world.getAirbases()) do
-        local airbaseName = airdrome:getName()
-        airbasesByName[airbaseName] = {
-            ["name"] = airbaseName,
-            ["desc"] = airdrome:getDesc(),
-            ["id"] = airdrome:getID(),
-            ["point"] = airdrome:getPoint(),
-            ["category"] = airdrome:getDesc().category,
-        }
-        if Airbase.getUnit(airdrome) then
-            airbasesByName[airbaseName].unitId = Airbase.getUnit(airdrome):getID()
-            util:logInfo(debugger, "airbase database registered airbase *unit* %s into airbasesByName", airbaseName)
-        end
-        util:logInfo(debugger, "airbase database registered airbase unit %s into airbasesByName", airbaseName)
-    end
-
-    for _, zones in pairs(env.mission.triggers) do
-        for _, zoneData in pairs(zones) do
-            zonesByName[zoneData.name] = {
-                ["radius"] = zoneData.radius,
-                ["zoneId"] = zoneData.zoneId,
-                ["color"] =
-                {
-                    [1] = zoneData.color[1],
-                    [2] = zoneData.color[2],
-                    [3] = zoneData.color[3],
-                    [4] = zoneData.color[4],
-                },
-                ["properties"] = zoneData.properties,
-                ["hidden"] = zoneData.hidden,
-                ["y"] = zoneData.y,
-                ["x"] = zoneData.x,
-                ["name"] = zoneData.name,
-                ["type"] = zoneData.type,
-            }
-            util:logInfo(debugger, "zone database registered trigger zone %s into zonesByName", zoneData.name)
-            if zoneData.type == 2 then
-                zonesByName[zoneData.name].verticies = zoneData.verticies
-            end
-        end
-    end
-
-    for _, groupData in pairs(groupsByName) do
-        for _, unitData in pairs(groupData.units) do
-            util:logWarning(debugger, "%s", unitData.name)
-            if unitData.skill ~= "Client" or unitData.skill ~= "Player" then -- this exception still collects them, it makes no sense
-                unitsByName[unitData.name] = {
-                    ["name"] = unitData.name,
-                    ["type"] = unitData.type,
-                    ["x"] = unitData.x,
-                    ["y"] = unitData.y,
-                    ["alt"] = unitData.alt,
-                    ["alt_type"] = unitData.alt_type,
-                    ["speed"] = unitData.speed,
-                    ["payload"] = unitData.payload,
-                    ["callsign"] = unitData.callsign,
-                    ["heading"] = unitData.heading,
-                    ["playerCanDrive"] = unitData.playerCanDrive,
-                    ["skill"] = unitData.skill,
-                    ["livery_id"] = unitData.livery_id,
-                    ["psi"] = unitData.psi,
-                    ["onboard_num"] = unitData.onboard_num,
-                    ["ropeLength"] = unitData.ropeLength,
-                    ["countryId"] = groupData.countryId,
-                    ["coalition"] = groupData.coalition,
-                    ["category"] = groupData.category,
-                    ["groupName"] = groupData.name
-                }
-                util:logInfo(debugger, "unit database registered unit %s into unitsByName", unitData.name)
-                if unitData.payload then
-                    payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
-                    util:logInfo(debugger, "payload database registered unit %s into payloadsByUnitName", unitData.name)
-                end
-            end
-        end
-    end
-
-    groupsByName = util:deepCopy(groupsByName)
-    unitsByName = util:deepCopy(unitsByName)
-    staticsByName = util:deepCopy(staticsByName)
-    airbasesByName = util:deepCopy(airbasesByName)
-    zonesByName = util:deepCopy(zonesByName)
-	payloadsByUnitName = util:deepCopy(payloadsByUnitName)
-
-    if st then
-        local et = os.clock() - st
-        util:logInfo(debugger, "DATABASE INITIALIZATION COMPLETED AND TOOK %0.4f SECONDS", et)
-    else
-        util:logInfo(debugger, "DATABASE INITIALIZATION COMPLETED")
-    end
-end
-
---
---
--- ** Classes : Main **
---
---
-
---[[
-
-@class #birth
-
-@authors Wizard
-
-@description
-the birth class is a wrapper for the DCS SSE API coalition.addGroup, providing the ability to birth unlimited groups
-dynamically from singular templates set to be late activated via the mission editor. These templates will carry over
-all the data related to it, including individual units/payloads/liveries/routes/tasks/etc. These templates can be
-changed further by the methods provided in the class, with methods such as birthFromAirbase you can alter which
-airbase an AI Aircraft will be born at along with unique parking spots and takeoff methods without even having
-the template placed there.
-
-@features
-- birth unlimted groups from a single late activated template group
-- birth a group with a unique alias
-- birth a group keeping the orignal group and unit names
-- birth new groups on a repeating schedule
-- birth from the original late activated group template
-- birth from a vec3 point on the map
-- birth from airbases at specific parking spots and taking off hot, cold, air, or from the runway
-- birth from a circle or quad trigger zone
-- automated rebirth on crashing, dying, landing, or shutting down engines
-- birth group methods to get the current groups status
-- inherited methods from #handler & #group
-
-@created Jan 30, 2022
-
-]]
-
-birth = {}
-birth.debug = true
-birth.takeoff = {
-    ["runway"] = {name = "Takeoff from runway",type = "TakeOff", action = "From Runway"},
-    ["hot"] = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
-    ["cold"] = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
-    ["air"] = {name = "Turning point", type = "Turning Point", action = "Turning Point" }
-}
-
---[[ create a new instance of a birth object
-- @param #birth self
-- @param #string groupName [the late activated template groups name]
-- @return #birth self
-]]
-function birth:new(groupName)
-    if groupsByName[groupName] then
-        local self = util:inheritParents(self, {handler:new(), group})
-        self.templateName = groupName
-        self.groupName = groupName
-        self._template = util:deepCopy(groupsByName[groupName])
-        self.birthTemplate = util:deepCopy(self._template)
-        self.groupTemplate = nil
-        self.countryId = self.birthTemplate.countryId
-        self.category = self.birthTemplate.category
-        self.coalition = self.birthTemplate.coalition
-        self.keepNames = nil
-        self.birthCount = 1
-        self.limitEnabled = nil
-        self.activeGroupLimit = 0
-        self.scheduledBirth = nil
-        self.scheduleTime = nil
-        self.alias = nil
-        self.dcsBirthGroup = nil
-
-        self.activeGroups = {} -- every born group by name
-
-        self:addTransition("*", "Start", "*")
-        self:addTransition("*", "Status", "*")
-
-        -- removal from the template
-        --self.birthTemplate.countryId = nil
-        --self.birthTemplate.category = nil
-        --self.birthTemplate.coalition = nil
-
-        return self
-    else
-        util:logError(self.debug, "%s was not registered into the group database, ensure you have the correct group name and late activation is enabled", groupName)
-    end
-end
-
-function birth:handleEvent(event)
-    self:onGroupEvent(self, event, self.groupName or self.alias)
-end
-
-function birth:onafterStart()
-    self:Status()
-end
-
---[[ keep the group and unit template names for the birth object
-- @param #birth self
-- @param #boolean enabled [if true, keep the late activated template groups name, default: false]
-- @return #birth self
-]]
-function birth:keepTemplateName(enabled)
-    if enabled then
-        self.keepNames = true
-        self.groupName = self.templateName
-    else
-        self.keepNames = false
-    end
-    return self
-end
-
---[[ set the group name alias for a birth object
-- units will have a "-" after the group name followed by each units Id as seen in game
-- eg:
-a set alias: "CAP F-16"
-units followed: CAP F-16-1", "CAP F-16-2" etc
-- @param #birth self
-- @param #string alias [the new group name of the birth object]
-- @return #birth self
-]]
-function birth:setAlias(alias)
-    self.alias = alias
-    return self
-end
-
---[[ set a limit for how many groups can be alive at any given time
-- @param #birth self
-- @param #number maxLimit [the maximum amount of groups that can be alive at any given time]
-- @return #birth self
-]]
-function birth:limitActiveGroups(maxLimit)
-    self.limitEnabled = true
-    self.activeGroupLimit = maxLimit
-    return self
-end
-
---[[ set the payload for a specifc unit within the birth group
-- note: this function can only be used before a birth object has been born. if it happens to be reborn the payload will be loaded at that point.
-- @param #birth self
-- @param #number unitId [the unitId within the group to set the payload for]
-- @param #string unitName [the unit name to obtain the payload from]
-- @return #birth self
-]]
-function birth:setPayload(unitId, unitName)
-    local _unit = unit:getByName(unitName)
-    if _unit ~= nil then
-        local payload = _unit:getPayload()
-        self.birthTemplate.units[unitId].payload = payload
-        util:logInfo(self.debug, "%s had unitId %d change its payload to %s's payload", self.groupName, unitId, unitName)
-    end
-    return self
-end
-
---[[ set the livery for a specifc unit within the birth group
-- note: this function can only be used before a birth object has been born. if it happens to be reborn the livery will be loaded at that point.
-- @param #birth self
-- @param #number unitId [the unitId within the group to set the livery for]
-- @param #string unitName [the unit name to obtain the livery from]
-- @return #birth self
-]]
-function birth:setPayload(unitId, unitName)
-    local _unit = unit:getByName(unitName)
-    if _unit ~= nil then
-        local livery = _unit:getLivery()
-        self.birthTemplate.units[unitId].livery_id = livery
-        util:logInfo(self.debug, "%s had unitId %d change its livery to %s's livery", self.groupName, unitId, unitName)
-    end
-    return self
-end
-
---[[ set the country of the birth group
-- @param #birth self
-- @param #string countryName
-]]
-function birth:setCountry(countryName)
-    if country.id.countryName then
-        self.countryId = country.id.countryName
-    end
-    return self
-end
-
---[[ set a units heading in degrees
-- @param #birth self
-- @param #number unitId [the unitId within the group to set the heading for]
-- @param #number heading [the heading to set in degrees]
-- @return #birth self
-]]
-function birth:setHeading(unitId, heading)
-    if self.birthTemplate.units[unitId] then
-        self.birthTemplate.units[unitId].heading = heading * math.pi/180
-    end
-    return self
-end
-
---[[ birth the object to the world from its orignal template
-- @param #birth self
-- @return #birth self
-]]
-function birth:birthToWorld()
-    --self.birthTemplate = util:deepCopy(self._template)
-    self:_initializeGroup()
-    return self
-end
-
---[[ set the birth object to have a scheduled birth
-- @param #birth self
-- @param #number scheduleTime [the time in seconds for which a new group will be born]
-- @return #birth self
-]]
-function birth:birthScheduled(scheduleTime)
-    self.scheduledBirth = true
-    self.scheduleTime = scheduleTime
-    return self
-end
-
---[[ rebirth the birth object immediatley
-- @param #birth self
-- @return #birth self
-]]
-function birth:rebirth()
-    self:birthToWorld()
-    return self
-end
-
---[[ birth the object from a vec3 point located on the map
-- @param #birth self
-- @param #table vec3 [table of vec3 points to be born at]
-- @return #birth self
-]]
-function birth:birthFromVec3(vec3, alt)
-    local _alt
-    if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
-        _alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
-    elseif self.category == Group.Category.SHIP then
-        _alt = 0
-    elseif self.category == Group.Category.AIRPLANE then
-        _alt = alt
-    end
-    for unitId, unitData in pairs(self.birthTemplate.units) do
-        local sX = unitData.x or 0
-        local sY = unitData.y  or 0
-        local bX = self.birthTemplate.route.points[1].x
-        local bY = self.birthTemplate.route.points[1].y
-        local tX = vec3.x + (sX - bX)
-        local tY = vec3.z + (sY - bY)
-        if alt then
-            unitData.alt = _alt
-        else
-            unitData.alt = tY
-        end
-        unitData.x = tX
-        unitData.y = tY
-    end
-    self.birthTemplate.route.points[1].alt = _alt
-    self.birthTemplate.route.points[1].x = vec3.x
-    self.birthTemplate.route.points[1].y = vec3.z
-
-    self:_initializeGroup()
-    return self
-end
-
---[[ birth the object from an airbase
-- this function can only be used on aircraft
-- @param #birth self
-- @param #string airbaseName [the airbase name to be born from]
-- @param #array parkingSpots [the parking spots to be born at]
-- @param #enum takeoffType [the takeoff type to be born with. options are: runway, hot, cold, air]
-- @return #birth self
-]]
-function birth:birthFromAirbase(airbaseName, parkingSpots, takeoffType)
-    local noSetSpots = false
-    local birthAirbase = Airbase.getByName(airbaseName)
-    if birthAirbase ~= nil then
-        local birthAirbaseCategory = Airbase.getDesc(birthAirbase).category
-        local birthAirbaseVec3 = Airbase.getPoint(birthAirbase)
-        if type(parkingSpots) ~= "table" and type(parkingSpots) == "number" then
-            parkingSpots = {parkingSpots}
-        elseif type(parkingSpots) == "nil" or type(parkingSpots) == "boolean" then
-            noSetSpots = true
-        end
-        if not noSetSpots then
-            if parkingSpots and birthAirbaseCategory == 2 then
-                util:logError(self.debug, "%s is unable to set parking spots on carrier, this is not an available option", self.templateName)
-                return
-            end
-            local parkingData = util:getParkingData(airbaseName, parkingSpots)
-            if #parkingSpots < #self.birthTemplate.units then
-                util:logError(self.debug, "%s does not have enough given parking spots to be born from an airbase", self.templateName)
-                return
-            else
-                if #parkingData == #parkingSpots then
-                    local birthWaypoint = self.birthTemplate.route.points[1]
-                    birthWaypoint.type = takeoffType.type
-                    birthWaypoint.action = takeoffType.action
-                    birthWaypoint.x = parkingData[1].termVec3.x
-                    birthWaypoint.y = parkingData[1].termVec3.z
-                    if birthAirbaseCategory == 0 then -- airbases
-                        birthWaypoint.airdromeId = Airbase.getID(birthAirbase)
-                    elseif birthAirbaseCategory == 2 then -- ships
-                        birthWaypoint.helipadId = Airbase.getID(birthAirbase)
-                    end
-                    for id = 1, #self.birthTemplate.units do
-                        self.birthTemplate.units[id].parking = parkingData[id].termIndex
-                        self.birthTemplate.units[id].x = parkingData[id].termVec3.x
-                        self.birthTemplate.units[id].y = parkingData[id].termVec3.z
-                    end
-                    --[[
-                    if #self.birthTemplate.route.points == 1 then
-                        self.birthTemplate.route.points[2] = util:deepCopy(self._template)
-                        self.birthTemplate.route.points[2].x = birthAirbaseVec3.x
-                        self.birthTemplate.route.points[2].y = birthAirbaseVec3.z
-                    end
-                    ]]
-                    self:_initializeGroup()
-
-                    return self
-                else
-                    util:logError(self.debug, "%s could not find enough valid/open parking spots", self.templateName)
-                end
-            end
-        else
-            local birthWaypoint = self.birthTemplate.route.points[1]
-            birthWaypoint.type = takeoffType.type
-            birthWaypoint.action = takeoffType.action
-            birthWaypoint.x = birthAirbaseVec3.x
-            birthWaypoint.y = birthAirbaseVec3.z
-            if birthAirbaseCategory == 0 then -- airbases
-                birthWaypoint.airdromeId = Airbase.getID(birthAirbase)
-            elseif birthAirbaseCategory == 2 then -- ships
-                birthWaypoint.helipadId = Airbase.getID(birthAirbase)
-                birthWaypoint.helipadId = Airbase.getID(birthAirbase)
-            end
-            --[[
-            if #self.birthTemplate.route.points == 1 then
-                self.birthTemplate.route.points[2] = util:deepCopy(self._template)
-                self.birthTemplate.route.points[2].x = birthAirbaseVec3.x
-                self.birthTemplate.route.points[2].y = birthAirbaseVec3.z + 1000
-                self.birthTemplate.route.points[2].alt = 5000
-            end
-
-            for id = 1, #self.birthTemplate.units do
-                self.birthTemplate.units[id].parking = parkingData[id].termIndex
-                --self.birthTemplate.units[id].x = parkingData[id].termVec3.x
-                --self.birthTemplate.units[id].y = parkingData[id].termVec3.z
-            end
-            ]]
-            self:_initializeGroup()
-
-            return self
-        end
-    end
-end
-
---[[ birth the object from a circle or quad trigger zone
-- @param #birth self
-- @param #string zoneName [the trigger zone to be born in]
-- @param #number alt [the trigger zone to be born at]
-- @return #birth self
-]]
-function birth:birthFromZone(zoneName, alt)
-    if zonesByName[zoneName] then
-        local _alt
-        local vec3 = trigger.misc.getZone(zoneName).point
-        if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
-            _alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
-        elseif self.category == Group.Category.SHIP then
-            _alt = 0
-        elseif self.category == Group.Category.AIRPLANE then
-            _alt = alt
-        end
-        for _, unitData in pairs(self.birthTemplate.units) do
-            local sX = unitData.x or 0
-            local sY = unitData.y  or 0
-            local bX = self.birthTemplate.route.points[1].x
-            local bY = self.birthTemplate.route.points[1].y
-            local tX = vec3.x + (sX - bX)
-            local tY = vec3.z + (sY - bY)
-            if alt then
-                unitData.alt = _alt
-            else
-                unitData.alt = tY
-            end
-            unitData.x = tX
-            unitData.y = tY
-        end
-        self.birthTemplate.route.points[1].alt = _alt
-        self.birthTemplate.route.points[1].x = vec3.x
-        self.birthTemplate.route.points[1].y = vec3.z
-
-        self:_initializeGroup()
-
-        return self
-    end
-end
-
---[[ internal function to initialize the group for birth
-- @param #birth self
-- @return #birth self
-]]
-function birth:_initializeGroup()
-    self:_updateActiveGroups()
-    if self.limitEnabled then
-        if #self.activeGroups < self.activeGroupLimit then
-            self:_addGroup()
-        end
-    else
-        self:_addGroup()
-    end
-    return self
-end
-
---[[ internal function to add a group into the world
-- @param #birth self
-- @return #birth self
-]]
-function birth:_addGroup()
-    -- remove any existing scheduler
-    if self.schedulerId then
-        self.schedulerId = nil
-    end
-    -- resolve naming convetion for the group
-    if not self.keepNames then
-        if type(self.alias) ~= "string" then
-            self.groupName = self.templateName.." #"..#self.activeGroups + 1
-        else
-            self.groupName = self.alias
-        end
-        self.birthTemplate.name = self.groupName
-        for unitId = 1, #self.birthTemplate.units do
-            self.birthTemplate.units[unitId].name = self.birthTemplate.name.."-"..unitId
-        end
-    end
-
-    -- send the birth object into the world
-    self.dcsBirthGroup = coalition.addGroup(self.countryId, self.category, self.birthTemplate)
-    self.birthCount = self.birthCount + 1
-    self.activeGroups[#self.activeGroups+1] = self.groupName
-    util:logInfo(self.debug, "%s has been born into the world", self.groupName)
-    if self.scheduledBirth then
-        util:scheduleFunction(birth._initializeGroup, self, self.scheduleTime)
-    end
-
-    -- add this new group to the groupsByName db
-    groupsByName[self.birthTemplate.name] = util:deepCopy(self.birthTemplate)
-    self.groupTemplate = util:deepCopy(self.birthTemplate)
-    -- add the units from the new group to unitsByName and payloadsByUnitName db's
-    for unitId = 1, #self.birthTemplate.units do
-        local unit = self.birthTemplate.units[unitId]
-        unit.groupName = self.birthTemplate.name
-        unitsByName[unit.name] = util:deepCopy(unit)
-        payloadsByUnitName[unit.name] = util:deepCopy(unit.payload)
-    end
-
-    return self
-end
-
---[[ interal function to update the currently existing born groups
-- @param #birth self
-- @return #birth self
-]]
-function birth:_updateActiveGroups()
-    for id, groupName in pairs(self.activeGroups) do
-        if Group.getByName(groupName) ~= nil and Group.getByName(groupName):isExist() then
-            local dcsGroup = Group.getByName(groupName)
-            local dcsUnits = Group.getUnits(dcsGroup)
-            local groupSize = #dcsUnits
-            local deadUnits = 0
-            if groupSize ~= 0 then
-                for _, unit in pairs(dcsUnits) do
-                    if unit:isExist() == false or unit:getFuel() == 0 or unit:getLife() < 1 then
-                        deadUnits = deadUnits + 1
-                    end
-                end
-            else
-                deadUnits = groupSize
-            end
-            if (groupSize - deadUnits) == 0 then
-                self.activeGroups[id] = nil
-            end
-        else
-            self.activeGroups[id] = nil
-        end
-    end
-    --[[
-    util:logInfo(self.debug, "DEBUGGING FOR TEMPLATE %s ACTIVE GROUPS", self.templateName)
-    if #self.activeGroups ~= 0 then
-        for x, y in pairs(self.activeGroups) do
-            util:logInfo(self.debug, "TEMPLATE %s HAS GROUP %s STILL ACTIVE", self.templateName, y)
-        end
-    else
-        util:logInfo(self.debug, "TEMPLATE %s HAS NO ACTIVE GROUPS", self.templateName)
-    end
-    ]]
-    return self
-end
-
---
---
 
 --[[
 
@@ -1928,12 +1473,9 @@ function fsm:cannot(e)
     return not self:can(e)
 end
 
---
---
-
 --[[
 
-@class #event
+@class #handler
 
 @authors Wizard
 
@@ -1953,6 +1495,10 @@ Finite State Machine based event handling for DCS World Events
 handler = {}
 handler.debug = true
 
+--[[ create a new instance of a handler object
+- @param #handler self
+- @return #handler self
+]]
 function handler:new()
     local self = util:inherit(self, fsm:new())
     self.events = {}
@@ -1960,6 +1506,13 @@ function handler:new()
     return self
 end
 
+--[[ handler registration for #group event
+- @param #handler self
+- @param #group class self
+- @param #enum event
+- @param #groupName
+- @return #handler self
+]]
 function handler:onGroupEvent(class, event, groupName)
     if not self.events[event.id] then
         self.events[event.id] = {
@@ -1971,8 +1524,16 @@ function handler:onGroupEvent(class, event, groupName)
         }
         self:addTransition("*", event.name, "*")
     end
+    return self
 end
 
+--[[ handler registration for #unit event
+- @param #handler self
+- @param #unit class self
+- @param #enum event
+- @param #unitName
+- @return #handler self
+]]
 function handler:onUnitEvent(class, event, unitName)
     if not self.events[event.id] then
         self.events[event.id] = {
@@ -1983,8 +1544,14 @@ function handler:onUnitEvent(class, event, unitName)
             unitName = unitName
         }
     end
+    return self
 end
 
+--[[ general handler registration for any event
+- @param #handler self
+- @param #enum event
+- @return #handler self
+]]
 function handler:handleEvent(event)
     if not self.events[event.id] then
         self.events[event.id] = {
@@ -1993,17 +1560,31 @@ function handler:handleEvent(event)
             id = event.id
         }
         self:addTransition("*", event.name, "*")
-        util:logInfo(self.debug, "event %s is now handled", event.name)
+        --util:logInfo(self.debug, "event %s is now handled", event.name)
     end
+    return self
 end
 
+--[[ unhandle any registered event
+- @param #handler self
+- @param #enum event
+- @return #handler self
+]]
 function handler:unhandleEvent(event)
     if self.events[event.id] then
         self.events[event.id] = nil
-        util:logInfo(self.debug, "event %s is now unhandled", event.text)
+        --util:logInfo(self.debug, "event %s is now unhandled", event.text)
     end
+    return self
 end
 
+--[[ the dcs onEvent function where mass data collection takes place for any event
+- this function should never be called for any reason by users!
+- registed events will call the appropriate onAfterXx automatically for the calling class!
+- @param #handler self
+- @param #dcsEvent event
+- @return none
+]]
 function handler:onEvent(event)
     local success, err = pcall(function()
         if self.events[event.id] ~= nil and event.id == self.events[event.id].id then
@@ -2089,12 +1670,472 @@ end
 
 --[[
 
+@class #birth
+
+@authors Wizard
+
+@description
+the birth class is a wrapper for the DCS SSE API coalition.addGroup, providing the ability to birth unlimited groups
+dynamically from singular templates set to be late activated via the mission editor. These templates will carry over
+all the data related to it, including individual units/payloads/liveries/routes/tasks/etc. These templates can be
+changed further by the methods provided in the class, with methods such as birthFromAirbase you can alter which
+airbase an AI Aircraft will be born at along with unique parking spots and takeoff methods without even having
+the template placed there.
+
+@features
+- birth unlimted groups from a single late activated template group
+- birth a group with a unique alias
+- birth a group keeping the orignal group and unit names
+- birth new groups on a repeating schedule
+- birth from the original late activated group template
+- birth from a vec3 point on the map
+- birth from airbases at specific parking spots and taking off hot, cold, air, or from the runway
+- birth from a circle or quad trigger zone
+- automated rebirth on crashing, dying, landing, or shutting down engines
+- birth group methods to return the current groups status
+- inherited methods from #handler & #group
+
+@created Jan 30, 2022
+
+]]
+
+birth = {}
+birth.debug = true
+birth.takeoff = {
+    ["runway"] = {name = "Takeoff from runway",type = "TakeOff", action = "From Runway"},
+    ["hot"] = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
+    ["cold"] = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
+    ["air"] = {name = "Turning point", type = "Turning Point", action = "Turning Point" }
+}
+
+--[[ create a new instance of a birth object
+- @param #birth self
+- @param #string groupName [the late activated template groups name]
+- @return #birth self
+]]
+function birth:new(groupName)
+    if groupsByName[groupName] then
+        local self = util:inheritParents(self, {handler:new(), group})
+        self.templateName = groupName
+        self.groupName = groupName
+        self._template = util:deepCopy(groupsByName[groupName])
+        self.birthTemplate = util:deepCopy(self._template)
+        self.groupTemplate = nil
+        self.countryId = self.birthTemplate.countryId
+        self.category = self.birthTemplate.category
+        self.coalition = self.birthTemplate.coalition
+        self.keepNames = nil
+        self.birthCount = 0
+        self.limitEnabled = nil
+        self.activeGroupLimit = 0
+        self.scheduledBirth = nil
+        self.scheduleTime = nil
+        self.alias = nil
+        self.dcsBirthGroup = nil
+
+        self.activeGroups = {} -- every born group by name
+        self.bornGroups = {}
+
+        --[[removal from the template
+        self.birthTemplate.countryId = nil
+        self.birthTemplate.category = nil
+        self.birthTemplate.coalition = nil
+        ]]
+        return self
+    end
+end
+
+--[[ register the birth object to a specific event
+- @param #birth self
+- @param #enum event
+- return #birth self]]
+function birth:handleEvent(event)
+    self:onGroupEvent(self, event, self.groupName or self.alias)
+    return self
+end
+
+--[[ keep the group and unit template names for the birth object
+- @param #birth self
+- @param #boolean enabled [if true, keep the late activated template groups name, default: false]
+- @return #birth self
+]]
+function birth:keepTemplateName(enabled)
+    if enabled then
+        self.keepNames = true
+        self.groupName = self.templateName
+    else
+        self.keepNames = false
+    end
+    return self
+end
+
+--[[ set the group name alias for a birth object
+- units will have a "-" after the group name followed by each units Id as seen in game
+- eg:
+a set alias: "CAP F-16"
+units followed: CAP F-16-1", "CAP F-16-2" etc
+- @param #birth self
+- @param #string alias [the new group name of the birth object]
+- @return #birth self
+]]
+function birth:setAlias(alias)
+    self.alias = alias
+    return self
+end
+
+--[[ set a limit for how many groups can be alive at any given time
+- @param #birth self
+- @param #number maxLimit [the maximum amount of groups that can be alive at any given time]
+- @return #birth self
+]]
+function birth:limitActiveGroups(maxLimit)
+    self.limitEnabled = true
+    self.activeGroupLimit = maxLimit
+    return self
+end
+
+--[[ set the payload for a specifc unit within the birth group
+- note: this function can only be used before a birth object has been born. if it happens to be reborn the payload will be loaded at that point.
+- @param #birth self
+- @param #number unitId [the unitId within the group to set the payload for]
+- @param #string unitName [the unit name to obtain the payload from]
+- @return #birth self
+]]
+function birth:setPayload(unitId, unitName)
+    local _unit = unit:getByName(unitName)
+    if _unit ~= nil then
+        local payload = _unit:getPayload()
+        self.birthTemplate.units[unitId].payload = payload
+    end
+    return self
+end
+
+--[[ set the livery for a specifc unit within the birth group
+- note: this function can only be used before a birth object has been born. if it happens to be reborn the livery will be loaded at that point.
+- @param #birth self
+- @param #number unitId [the unitId within the group to set the livery for]
+- @param #string unitName [the unit name to obtain the livery from]
+- @return #birth self
+]]
+function birth:setLivery(unitId, unitName)
+    local _unit = unit:getByName(unitName)
+    if _unit ~= nil then
+        local livery = _unit:getLivery()
+        self.birthTemplate.units[unitId].livery_id = livery
+    end
+    return self
+end
+
+--[[ set the country of the birth group
+- @param #birth self
+- @param #string countryName
+]]
+function birth:setCountry(countryName)
+    if country.id.countryName then
+        self.countryId = country.id.countryName
+    end
+    return self
+end
+
+--[[ set a units heading in degrees
+- @param #birth self
+- @param #number unitId [the unitId within the group to set the heading for]
+- @param #number heading [the heading to set in degrees]
+- @return #birth self
+]]
+function birth:setHeading(unitId, heading)
+    if self.birthTemplate.units[unitId] then
+        self.birthTemplate.units[unitId].heading = heading * math.pi/180
+    end
+    return self
+end
+
+--[[ birth the object to the world from its orignal template
+- @param #birth self
+- @return #birth self
+]]
+function birth:birthToWorld()
+    self:_initializeGroup()
+    return self
+end
+
+--[[ set the birth object to have a scheduled birth
+- @param #birth self
+- @param #number scheduleTime [the time in seconds for which a new group will be born]
+- @return #birth self
+]]
+function birth:birthScheduled(scheduleTime)
+    self.scheduledBirth = true
+    self.scheduleTime = scheduleTime
+    return self
+end
+
+--[[ rebirth the birth object immediatley
+- @param #birth self
+- @return #birth self
+]]
+function birth:rebirth()
+    self:birthToWorld()
+    return self
+end
+
+--[[ birth the object from a vec3 point located on the map
+- @param #birth self
+- @param #table vec3 [table of vec3 points to be born at]
+- @return #birth self
+]]
+function birth:birthFromVec3(vec3, alt)
+    local _alt
+    if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
+        _alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
+    elseif self.category == Group.Category.SHIP then
+        _alt = 0
+    elseif self.category == Group.Category.AIRPLANE then
+        _alt = alt
+    end
+    for unitId, unitData in pairs(self.birthTemplate.units) do
+        local sX = unitData.x or 0
+        local sY = unitData.y  or 0
+        local bX = self.birthTemplate.route.points[1].x
+        local bY = self.birthTemplate.route.points[1].y
+        local tX = vec3.x + (sX - bX)
+        local tY = vec3.z + (sY - bY)
+        if alt then
+            unitData.alt = _alt
+        else
+            unitData.alt = tY
+        end
+        unitData.x = tX
+        unitData.y = tY
+    end
+    self.birthTemplate.route.points[1].alt = _alt
+    self.birthTemplate.route.points[1].x = vec3.x
+    self.birthTemplate.route.points[1].y = vec3.z
+
+    self:_initializeGroup()
+    return self
+end
+
+--[[ birth the object from an airbase
+- this function can only be used on aircraft
+- @param #birth self
+- @param #string airbaseName [the airbase name to be born from]
+- @param #array parkingSpots [the parking spots to be born at]
+- @param #enum takeoffType [the takeoff type to be born with. options are: runway, hot, cold, air]
+- @return #birth self
+]]
+function birth:birthFromAirbase(airbaseName, parkingSpots, takeoffType)
+    local noSetSpots = false
+    local birthAirbase = Airbase.getByName(airbaseName)
+    if birthAirbase ~= nil then
+        local birthAirbaseCategory = Airbase.getDesc(birthAirbase).category
+        local birthAirbaseVec3 = Airbase.getPoint(birthAirbase)
+        if type(parkingSpots) ~= "table" and type(parkingSpots) == "number" then
+            parkingSpots = {parkingSpots}
+        elseif type(parkingSpots) == "nil" or type(parkingSpots) == "boolean" then
+            noSetSpots = true
+        end
+        if not noSetSpots then
+            if parkingSpots and birthAirbaseCategory == 2 then
+                util:logError(self.debug, "%s is unable to set parking spots on carrier, this is not an available option", self.templateName)
+                return
+            end
+            local parkingData = util:getParkingData(airbaseName, parkingSpots)
+            if #parkingSpots < #self.birthTemplate.units then
+                util:logError(self.debug, "%s does not have enough given parking spots to be born from an airbase", self.templateName)
+                return
+            else
+                if #parkingData == #parkingSpots then
+                    local birthWaypoint = self.birthTemplate.route.points[1]
+                    birthWaypoint.type = takeoffType.type
+                    birthWaypoint.action = takeoffType.action
+                    birthWaypoint.x = parkingData[1].termVec3.x
+                    birthWaypoint.y = parkingData[1].termVec3.z
+                    if birthAirbaseCategory == 0 then -- airbases
+                        birthWaypoint.airdromeId = Airbase.getID(birthAirbase)
+                    elseif birthAirbaseCategory == 2 then -- ships
+                        birthWaypoint.helipadId = Airbase.getID(birthAirbase)
+                    end
+                    for id = 1, #self.birthTemplate.units do
+                        self.birthTemplate.units[id].parking = parkingData[id].termIndex
+                        self.birthTemplate.units[id].x = parkingData[id].termVec3.x
+                        self.birthTemplate.units[id].y = parkingData[id].termVec3.z
+                    end
+                    --[[
+                    if #self.birthTemplate.route.points == 1 then
+                        self.birthTemplate.route.points[2] = util:deepCopy(self._template)
+                        self.birthTemplate.route.points[2].x = birthAirbaseVec3.x
+                        self.birthTemplate.route.points[2].y = birthAirbaseVec3.z
+                    end
+                    ]]
+                    self:_initializeGroup()
+
+                    return self
+                else
+                    util:logError(self.debug, "%s could not find enough valid/open parking spots", self.templateName)
+                end
+            end
+        else
+            local birthWaypoint = self.birthTemplate.route.points[1]
+            birthWaypoint.type = takeoffType.type
+            birthWaypoint.action = takeoffType.action
+            birthWaypoint.x = birthAirbaseVec3.x
+            birthWaypoint.y = birthAirbaseVec3.z
+            if birthAirbaseCategory == 0 then -- airbases
+                birthWaypoint.airdromeId = Airbase.getID(birthAirbase)
+            elseif birthAirbaseCategory == 2 then -- ships
+                birthWaypoint.helipadId = Airbase.getID(birthAirbase)
+                birthWaypoint.helipadId = Airbase.getID(birthAirbase)
+            end
+            --[[
+            if #self.birthTemplate.route.points == 1 then
+                self.birthTemplate.route.points[2] = util:deepCopy(self._template)
+                self.birthTemplate.route.points[2].x = birthAirbaseVec3.x
+                self.birthTemplate.route.points[2].y = birthAirbaseVec3.z + 1000
+                self.birthTemplate.route.points[2].alt = 5000
+            end
+
+            for id = 1, #self.birthTemplate.units do
+                self.birthTemplate.units[id].parking = parkingData[id].termIndex
+                --self.birthTemplate.units[id].x = parkingData[id].termVec3.x
+                --self.birthTemplate.units[id].y = parkingData[id].termVec3.z
+            end
+            ]]
+            self:_initializeGroup()
+
+            return self
+        end
+    end
+end
+
+--[[ birth the object from a circle or quad trigger zone
+- @param #birth self
+- @param #string zoneName [the trigger zone to be born in]
+- @param #number alt [the trigger zone to be born at]
+- @return #birth self
+]]
+function birth:birthFromZone(zoneName, alt)
+    if zonesByName[zoneName] then
+        local _alt
+        local vec3 = trigger.misc.getZone(zoneName).point
+        if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
+            _alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
+        elseif self.category == Group.Category.SHIP then
+            _alt = 0
+        elseif self.category == Group.Category.AIRPLANE then
+            _alt = alt
+        end
+        for _, unitData in pairs(self.birthTemplate.units) do
+            local sX = unitData.x or 0
+            local sY = unitData.y  or 0
+            local bX = self.birthTemplate.route.points[1].x
+            local bY = self.birthTemplate.route.points[1].y
+            local tX = vec3.x + (sX - bX)
+            local tY = vec3.z + (sY - bY)
+            if alt then
+                unitData.alt = _alt
+            else
+                unitData.alt = tY
+            end
+            unitData.x = tX
+            unitData.y = tY
+        end
+        self.birthTemplate.route.points[1].alt = _alt
+        self.birthTemplate.route.points[1].x = vec3.x
+        self.birthTemplate.route.points[1].y = vec3.z
+
+        self:_initializeGroup()
+
+        return self
+    end
+end
+
+--[[ internal function to initialize the group for birth
+- @param #birth self
+- @return #birth self
+]]
+function birth:_initializeGroup()
+    self:_updateActiveGroups()
+    if self.limitEnabled then
+        if #self.activeGroups < self.activeGroupLimit then
+            self:_addGroup()
+        end
+    else
+        self:_addGroup()
+    end
+    return self
+end
+
+--[[ internal function to add a group into the world
+- @param #birth self
+- @return #birth self
+]]
+function birth:_addGroup()
+    -- remove any existing scheduler
+    if self.schedulerId then
+        self.schedulerId = nil
+    end
+    -- resolve naming convetion for the group
+    if not self.keepNames then
+        if type(self.alias) ~= "string" then
+            self.groupName = self.templateName.." #"..self.birthCount + 1
+        else
+            self.groupName = self.alias
+        end
+        self.birthTemplate.name = self.groupName
+        for unitId = 1, #self.birthTemplate.units do
+            self.birthTemplate.units[unitId].name = self.birthTemplate.name.."-"..unitId
+        end
+    end
+
+    -- send the birth object into the world
+    self.dcsBirthGroup = coalition.addGroup(self.countryId, self.category, self.birthTemplate)
+    self.birthCount = self.birthCount + 1
+    self.bornGroups[#self.bornGroups+1] = self.groupName
+    --util:logInfo(self.debug, "%s has been born into the world", self.groupName)
+    if self.scheduledBirth then
+        util:scheduleFunction(birth._initializeGroup, self, self.scheduleTime)
+    end
+
+    -- add this new group to the groupsByName db
+    groupsByName[self.birthTemplate.name] = util:deepCopy(self.birthTemplate)
+    self.groupTemplate = util:deepCopy(self.birthTemplate)
+    -- add the units from the new group to unitsByName and payloadsByUnitName db's
+    for unitId = 1, #self.birthTemplate.units do
+        local unit = self.birthTemplate.units[unitId]
+        unit.groupName = self.birthTemplate.name
+        unitsByName[unit.name] = util:deepCopy(unit)
+        payloadsByUnitName[unit.name] = util:deepCopy(unit.payload)
+    end
+
+    return self
+end
+
+--[[ interal function to update the currently existing born groups
+- @param #birth self
+- @return #birth self
+]]
+function birth:_updateActiveGroups()
+    self.activeGroups = {}
+    for _, groupName in pairs(self.bornGroups) do
+        local _group = group:getByName(groupName)
+        if _group then
+            if _group:isAlive() then
+                self.activeGroups[#self.activeGroups+1] = groupName
+            end
+        end
+    end
+    return self
+end
+
+--[[
+
 @class #search
 
 @authors Wizard
 
 @description
-search for a collection of objects to call functions on as a whole.
+search for a collection of objects to call functions on as a whole. you must use a searchBy method before using a searchFor method.
 
 @features
 
@@ -2105,6 +2146,10 @@ search for a collection of objects to call functions on as a whole.
 search = {}
 search.debug = true
 
+--[[ create a new instance of a search object
+- @param #search self
+- @return #search self
+]]
 function search:new()
     local self = util:inherit(self, handler:new())
     self.groups = {}
@@ -2112,107 +2157,89 @@ function search:new()
     return self
 end
 
+--[[ search for objects by a sub string
+- can find a specific string at any location
+- @param #search self
+- @param #string subString [the sub string to search for]
+- @return #search self
+]]
 function search:searchBySubString(subString)
     self.filter.subString = subString
     return self
 end
 
+--[[ search for objects by a starting prefix
+- can only find stings at the start
+- @param #search self
+- @param #string prefix [the prefix to search for]
+- @return #search self
+]]
 function search:searchByPrefix(prefix)
     self.filter.prefix = prefix
     return self
 end
 
+--[[ search for objects by coalition
+- @param #search self
+- @param #enum coalition [coalition side eg: 0 = neutral, 1 = red, 2 = blue]
+- @return #search self
+]]
 function search:searchByCoalition(coalition)
     self.filter.coalition = coalition
     return self
 end
 
+--[[ search for objects by country
+- @param #search self
+- @param #enum country [countryId eg: country.id.USA = 2]
+- @return #search self
+]]
 function search:searchByCountry(countryId)
     self.filter.country = countryId
     return self
 end
 
+--[[ search for objects by category
+- @param #search self
+- @param #enum country [category eg; Group.Category.AIRPLANE]
+- @return #search self
+]]
 function search:searchByCategory(category)
     self.filter.category = category
     return self
 end
 
-function search:searchForGroupsOnce()
-    local groups = {}
-    for groupName, groupData in pairs(groupsByName) do
-
-        -- filter subStrings
-        if self.filter.subString then
-            if string.find(groupName, self.filter.subString) then
-                util:logWarning(debugger, "%s prefix found!", groupName)
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-
-        -- filter starts with prefix
-        if self.filter.prefix then
-            if string.find(groupName, self.filter.prefix, 1, true) == 1 then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-
-        -- filter coalitions
-        if self.filter.coalition then
-            if groupData.coalition == groupData.coalition then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-
-        -- filter categorys
-        if self.filter.category then
-            if groupData.category == self.filter.category then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-
-        -- filter countrys
-        if self.filter.country then
-            if groupData.countryId == self.filter.country then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-    end
-    return groups
-end
-
+--[[ search for units one time and return an array of unit objects
+- @param #search self
+- @return #array units
+]]
 function search:searchForUnitsOnce()
     local units = {}
-
     for unitName, unitData in pairs(unitsByName) do
-
         -- filter subStrings
         if self.filter.subString then
             if string.find(unitName, self.filter.subString) then
                 units[#units+1] = unit:getByName(unitName)
             end
         end
-
         -- filter starts with prefix
         if self.filter.prefix then
             if string.find(unitName, self.filter.prefix, 1, true) == 1 then
                 units[#units+1] = unit:getByName(unitName)
             end
         end
-
         -- filter coalitions
         if self.filter.coalition then
             if unitData.coalition == unitData.coalition then
                 units[#units+1] = unit:getByName(unitName)
             end
         end
-
         -- filter categorys
         if self.filter.category then
             if unitData.category == self.filter.category then
                 units[#units+1] = unit:getByName(unitName)
             end
         end
-
         -- filter countrys
         if self.filter.country then
             if unitData.countryId == self.filter.country then
@@ -2223,24 +2250,91 @@ function search:searchForUnitsOnce()
     return units
 end
 
+--[[ search for statics one time and return an array of static objects
+- @param #search self
+- @return #array statics
+]]
+function search:searchForStaticsOnce()
+    local statics = {}
+    return statics
+end
+
+--[[ search for airbases one time and return an array of airbase objects
+- @param #search self
+- @return #array airbases
+]]
+function search:searchForAirbasesOnce()
+    local airbases = {}
+    return airbases
+end
+
+--[[ search for groups one time and return an array of group objects
+- @param #search self
+- @return #array groups
+]]
+function search:searchForGroupsOnce()
+    local groups = {}
+    for groupName, groupData in pairs(groupsByName) do
+        -- filter subStrings
+        if self.filter.subString then
+            if string.find(groupName, self.filter.subString) then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+        -- filter starts with prefix
+        if self.filter.prefix then
+            if string.find(groupName, self.filter.prefix, 1, true) == 1 then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+        -- filter coalitions
+        if self.filter.coalition then
+            if groupData.coalition == groupData.coalition then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+        -- filter categorys
+        if self.filter.category then
+            if groupData.category == self.filter.category then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+        -- filter countrys
+        if self.filter.country then
+            if groupData.countryId == self.filter.country then
+                groups[#groups+1] = group:getByName(groupName)
+            end
+        end
+    end
+    return groups
+end
+
+--[[ search for zones one time and return an array of zone objects
+- @param #search self
+- @return #array zones
+]]
+function search:searchForZonesOnce()
+    local zones = {}
+    return zones
+end
 
 --
 --
--- ** Classes : AI **
+-- ** classes : ai **
 --
 --
 
 --[[
 
-@class #element
+@class #cap
 
 @authors Wizard
 
 @description
-the element class is an essential peice to any air war, consisiting of 1-4 units each of the same kind and have its own unique
-deployment airbase and patrol area to perform CAP duties. utilizing finite state machine events the element will be automated to pushed through
-a series of states that help with tasking it to start its patrol, engage targets, go back to patrolling after killing detected targets,
-return to base after reaching its RTB fuel threshold, etc. all of these events can also be called upon by users to help with the mission enhancements.
+the cap class provides combat air patrol behaviors for a #birth group and its units. utilizing finite state machine events the cap object
+will be automated to pushed through a series of states that help with tasking it to start its patrol, engage targets, go back to patrolling
+after killing detected targets, return to base after reaching its RTB fuel threshold, etc. all of these events can also be called upon by
+users to help with the mission enhancements.
 
 @features
 - automated deployment
@@ -2256,7 +2350,7 @@ return to base after reaching its RTB fuel threshold, etc. all of these events c
 - dynamic patrol ranges (distance from center of patrol)
 - dynamic engage altitudes
 - dynamic enage speeds
-- dynamic engage ranges (distance from element)
+- dynamic engage ranges (distance from cap object)
 - unique patrol shapes
 - unique detection types
 - inherited methods from #birth and #handler
@@ -2265,11 +2359,11 @@ return to base after reaching its RTB fuel threshold, etc. all of these events c
 
 ]]
 
-element = {}
-element.debug = true
+cap = {}
+cap.debug = true
 
 -- patrol shapes for how the patrol is created
-element.patrolShapes = {
+cap.patrolShapes = {
     ["triangle"] = {["points"] = 3, ["degrees"] = 120},
     ["diamond"] = {["points"] = 4, ["degrees"] = 90},
     ["pentagon"] = {["points"] = 5, ["degrees"] = 72},
@@ -2278,8 +2372,8 @@ element.patrolShapes = {
     ["star"] = {["points"] = 5, ["degrees"] = 144},
 }
 
--- detection types for how the element finds targets
-element.detectionTypes = {
+-- detection types for how the cap object finds targets
+cap.detectionTypes = {
     ["visual"] = 1,
     ["optic"]  = 2,
     ["radar"]  = 4,
@@ -2288,15 +2382,15 @@ element.detectionTypes = {
     ["datalink"]  = 32
 }
 
---[[ create a new instance of an element object
-- @param #element self
-- @param #string elementName [the name of the element]
-- @param #string birthGroup [the birth group object to be controlled as an element object]
-- @return #element self
+--[[ create a new instance of a cap object
+- @param #cap self
+- @param #string capName [the name of the cap object]
+- @param #string birthGroup [the birth group object to be controlled as a cap object]
+- @return #cap self
 ]]
-function element:new(elementName, birthGroup)
+function cap:new(capName, birthGroup)
     local self = util:inherit(self, birthGroup)
-    self.elementName = elementName
+    self.capName = capName
     self.detection = {}
     self.airbaseName = nil
     self.parkingSpots = nil
@@ -2344,31 +2438,20 @@ function element:new(elementName, birthGroup)
     return self
 end
 
-function element:handleEvent(event)
-    util:logError(self.debug, "element handling %s for %s", event.name, self:getName())
+function cap:handleEvent(event)
     self:onGroupEvent(self, event, self.groupName)
     return self
 end
 
---[[ enable or disable writing to dcs.log
-- @param #element self
-- @param #boolean bool [default true, false to disable writing to dcs.log]
-- @return #element self
-]]
-function element:log(bool)
-    self.logging = bool
-    return self
-end
-
---[[ set the detection types for how the element finds targets
+--[[ set the detection types for how the cap object finds targets
 - note: you can only have up to 3 detection types per limit of DCS
-- @param #element self
-- @param #enum type1 [detectionType eg: element.detectionTypes.datalink]
-- @param #enum type2 [detectionType eg: element.detectionTypes.rwr]
-- @param #enum type3 [detectionType eg: element.detectionTypes.radar]
-- @return #element self
+- @param #cap self
+- @param #enum type1 [detectionType eg: cap.detectionTypes.datalink]
+- @param #enum type2 [detectionType eg: cap.detectionTypes.rwr]
+- @param #enum type3 [detectionType eg: cap.detectionTypes.radar]
+- @return #cap self
 ]]
-function element:setDetection(type1, type2, type3)
+function cap:setDetection(type1, type2, type3)
     if type1 then
         self.detection[1] = type1
     end
@@ -2381,199 +2464,199 @@ function element:setDetection(type1, type2, type3)
     return self
 end
 
---[[ set the airbase that the element will depart from always
-- @param #element self
-- @return #element self
+--[[ set the airbase that the cap object will depart from
+- @param #cap self
+- @return #cap self
 ]]
-function element:setAirbase(airbaseName)
+function cap:setAirbase(airbaseName)
     self.airbaseName = airbaseName
     return self
 end
 
---[[ set the airbase that the element will depart from always
-- @param #element self
-- @return #element self
+--[[ set the airbase that the cap object will depart from
+- @param #cap self
+- @return #cap self
 ]]
-function element:setParkingSpots(parkingSpots)
+function cap:setParkingSpots(parkingSpots)
     self.parkingSpots = parkingSpots
 end
 
---[[ set the elements patrol to a airbase or trigger zone
-- @param #element self
+--[[ set the cap object to patrol a airbase or trigger zone
+- @param #cap self
 - @param #string patrolName [the name of the airbase or trigger zone]
-- @param #enum patrolShape [the patrol shape, eg: element.patrolShape.diamond]
-- @return #element self
+- @param #enum patrolShape [the patrol shape, eg: cap.patrolShape.diamond]
+- @return #cap self
 ]]
-function element:setPatrol(patrolName, patrolShape)
+function cap:setPatrol(patrolName, patrolShape)
     self.patrolName = patrolName
     self.patrolShape = util:deepCopy(patrolShape)
     return self
 end
 
---[[ set the amount of resources the element has available
-- note: if the element dies, the current resources will be subtracted by 1.
-- if at least one unit from the element successfully lands, the current resources will be added back by 1.
-- @param #element self
-- @param #number resources [this is the amount of groups the element has]
-- @return #element self
+--[[ set the amount of resources the cap object has available
+- note: upon deployment, the current resources will be subtracted by the amount of units born
+- 1 resource per unit landing will be given back
+- @param #cap self
+- @param #number resources [this is the amount of groups the cap object has]
+- @return #cap self
 ]]
-function element:setResources(resources)
+function cap:setResources(resources)
     self.resources = resources
     return self
 end
 
---[[ set the RTB fuel threshold for the element
-- @param #element self
-- @param #number threshold [once the element reaches this combined fuel amount, they will RTB]
-- @return #element self
+--[[ set the RTB fuel threshold for the cap object
+- @param #cap self
+- @param #number threshold [once the cap object reaches this combined fuel amount, they will RTB]
+- @return #cap self
 ]]
-function element:setFuelThreshold(threshold)
+function cap:setFuelThreshold(threshold)
     self.fuelThreshold = threshold
     return self
 end
 
---[[ set the RTB health threshold for the element
-- @param #element self
-- @param #number threshold [once the element reaches this combined health ammount, they will RTB]
-- @return #element self
+--[[ set the RTB health threshold for the cap object
+- @param #cap self
+- @param #number threshold [once the cap object reaches this combined health ammount, they will RTB]
+- @return #cap self
 ]]
-function element:setHealthThreshold(threshold)
+function cap:setHealthThreshold(threshold)
     self.healthThreshold = threshold
     return self
 end
 
---[[ set the RTB ammo threshold for the element
-- @param #element self
-- @param #number threshold [once the element reaches this combined ammo ammount, they will RTB]
-- @return #element self
+--[[ set the RTB ammo threshold for the cap object
+- @param #cap self
+- @param #number threshold [once the cap object reaches this combined ammo ammount, they will RTB]
+- @return #cap self
 ]]
-function element:setAmmoThreshold(threshold)
+function cap:setAmmoThreshold(threshold)
     self.ammoThreshold = threshold
     return self
 end
 
---[[ set the min and max patrol alt for the element
+--[[ set the min and max patrol alt for the cap object
 - note: for each point in the patrol, a random alt between the min and max will be chosen to patrol from
-- @param #element self
+- @param #cap self
 - @param #number minAlt [the minimum alt in meters]
 - @param #number maxAlt [the maximum alt in meters]
-- @return #element self
+- @return #cap self
 ]]
-function element:setPatrolAlt(minAlt, maxAlt)
+function cap:setPatrolAlt(minAlt, maxAlt)
     self.minPatrolAlt = minAlt
     self.maxPatrolAlt = maxAlt
     return self
 end
 
---[[ set the min and max patrol speed for the element
+--[[ set the min and max patrol speed for the cap object
 - note: for each point in the patrol, a random speed between the min and max will be chosen to patrol at
-- @param #element self
+- @param #cap self
 - @param #number minSpeed [the minimum speed in meters]
 - @param #number maxSpeed [the maximum speed in meters]
-- @return #element self
+- @return #cap self
 ]]
-function element:setPatrolSpeed(minSpeed, maxSpeed)
+function cap:setPatrolSpeed(minSpeed, maxSpeed)
     self.minPatrolSpeed = minSpeed
     self.maxPatrolSpeed = maxSpeed
     return self
 end
 
---[[ set the min and max patrol range for the element
+--[[ set the min and max patrol range for the cap object
 - note: for each point in the patrol, a random distance from the patrol airbase/zone center will be chosen
-- @param #element self
+- @param #cap self
 - @param #number minRange [the minimum range in meters]
 - @param #number maxRange [the maximum range in meters]
-- @return #element self
+- @return #cap self
 ]]
-function element:setPatrolRange(minRange, maxRange)
+function cap:setPatrolRange(minRange, maxRange)
     self.minPatrolRange = minRange
     self.maxPatrolRange = maxRange
     return self
 end
 
---[[ set the min and max engage alt for the element
+--[[ set the min and max engage alt for the cap object
 - note: each time an engagement occurs, a random alt between the min and max will be chosen to engage from
-- @param #element self
+- @param #cap self
 - @param #number minAlt [the minimum alt in meters]
 - @param #number maxAlt [the maximum alt in meters]
-- @return #element self
+- @return #cap self
 ]]
-function element:setEngageAlt(minAlt, maxAlt)
+function cap:setEngageAlt(minAlt, maxAlt)
     self.minEngageAlt = minAlt
     self.maxEngageAlt = maxAlt
     return self
 end
 
---[[ set the min and max engage speed for the element
+--[[ set the min and max engage speed for the cap object
 - note: each time an engagement occurs, a random speed between the min and max will be chosen to engage at
-- @param #element self
+- @param #cap self
 - @param #number minSpeed [the minimum speed in meters]
 - @param #number maxSpeed [the maximum speed in meters]
-- @return #element self
+- @return #cap self
 ]]
-function element:setEngageSpeed(minSped, maxSpeed)
+function cap:setEngageSpeed(minSped, maxSpeed)
     self.minEngageSpeed = minSped
     self.maxEngageSpeed = maxSpeed
     return self
 end
 
---[[ set the min and max engage range for the element
+--[[ set the min and max engage range for the cap object
 - note: for any detected target a random range between the min and max is selected to check if the target is within that range.
-- @param #element self
+- @param #cap self
 - @param #number minRange [the minimum range in meters]
 - @param #number maxRange [the maximum range in meters]
-- @return #element self
+- @return #cap self
 ]]
-function element:setEngageRange(minRange, maxRange)
+function cap:setEngageRange(minRange, maxRange)
     self.minEngageRange = minRange
     self.maxEngageRange = maxRange
     return self
 end
 
---[[ set the element to takeoff from parking hot
-- @param #element self
-- @return #element self
+--[[ set the cap object to takeoff from parking hot
+- @param #cap self
+- @return #cap self
 ]]
-function element:setTakeoffHot()
+function cap:setTakeoffHot()
     self.takeoff = waypoint.takeoffParkingHot
     return self
 end
 
---[[ set the element to takeoff from parking cold
-- @param #element self
-- @return #element self
+--[[ set the cap object to takeoff from parking cold
+- @param #cap self
+- @return #cap self
 ]]
-function element:setTakeoffCold()
+function cap:setTakeoffCold()
     self.takeoff = waypoint.takeoffParking
     return self
 end
 
---[[ set the element to takeoff from parking air
-- @param #element self
-- @return #element self
+--[[ set the cap object to takeoff from parking air
+- @param #cap self
+- @return #cap self
 ]]
-function element:setTakeoffAir(alt)
+function cap:setTakeoffAir(alt)
     self.airstart = true
     self.takeoffAlt = alt
     return self
 end
 
---[[ set the element to takeoff from runway
-- @param #element self
-- @return #element self
+--[[ set the cap object to takeoff from runway
+- @param #cap self
+- @return #cap self
 ]]
-function element:setTakeoffRunway()
+function cap:setTakeoffRunway()
     self.takeoff = waypoint.takeoffRunway
     return self
 end
 
-function element:onafterStart()
-    util:logInfo(self.debug, "onafter Start")
+function cap:onafterStart()
+    --util:logInfo(self.debug, "onafter Start")
     self:__Status(1)
 end
 
-function element:onafterStatus()
-    util:logInfo(self.debug, "onafter Status")
+function cap:onafterStatus()
+    --util:logInfo(self.debug, "onafter Status")
     if self:isAlive() then
         if self:inAir() == true then
             if not self.rtb then
@@ -2600,19 +2683,19 @@ function element:onafterStatus()
                             end
                         else
                             if not self.rtb then
-                                util:logInfo(self.debug, "low ammo count of %d, RTB!", self:getAvgAmmo())
+                                --util:logInfo(self.debug, "low ammo count of %d, RTB!", self:getAvgAmmo())
                                 self:__RTB(1)
                             end
                         end
                     else
                         if not self.rtb then
-                            util:logInfo(self.debug, "low health of %0.2f, RTB!", self:getAvgHealth())
+                            --util:logInfo(self.debug, "low health of %0.2f, RTB!", self:getAvgHealth())
                             self:__RTB(1)
                         end
                     end
                 else
                     if not self.rtb then
-                        util:logInfo(self.debug, "low fuel state of %0.2f, RTB!", self:getAvgFuel())
+                        --util:logInfo(self.debug, "low fuel state of %0.2f, RTB!", self:getAvgFuel())
                         self:__RTB(1)
                     end
                 end
@@ -2629,7 +2712,7 @@ function element:onafterStatus()
                 self:__Deploy(1)
             else
                 if not self.depleated then
-                    util:logInfo(self.debug, "%s has ran out of resources", self.elementName)
+                    --util:logInfo(self.debug, "%s has ran out of resources", self.capName)
                     self.depleated = true
                 end
             end
@@ -2642,7 +2725,7 @@ function element:onafterStatus()
     end
 end
 
-function element:onbeforeDeploy()
+function cap:onbeforeDeploy()
     self.rtb = false
     self.attacking = false
     self.patrolling = false
@@ -2650,24 +2733,24 @@ function element:onbeforeDeploy()
     self.engagedTargets = {}
 end
 
-function element:onafterDeploy()
-    util:logInfo(self.debug, "onafter Deploy")
+function cap:onafterDeploy()
+    --util:logInfo(self.debug, "onafter Deploy")
     if self.airstart then
         self:birthFromVec3(Airbase.getByName(self.airbaseName):getPoint(), self.takeoffAlt)
-        self.resources = self.resources - 1
+        self.resources = self.resources - #self.birthTemplate.units
     else
         self:birthFromAirbase(self.airbaseName, self.parkingSpots, self.takeoff)
-        self.resources = self.resources - 1
+        self.resources = self.resources - #self.birthTemplate.units
     end
 end
 
-function element:onafterTakeoff(from, event, to, eventData)
-    util:logInfo(self.debug, "onafter Takeoff")
-    util:logInfo(self.debug, "%s has taken off from %s", eventData.initUnitName, eventData.placeName)
+function cap:onafterTakeoff(from, event, to, eventData)
+    --util:logInfo(self.debug, "onafter Takeoff")
+    --util:logInfo(self.debug, "%s has taken off from %s", eventData.initUnitName, eventData.placeName)
 end
 
-function element:onafterTaskPatrol()
-    util:logInfo(self.debug, "onafter TaskPatrol")
+function cap:onafterTaskPatrol()
+    --util:logInfo(self.debug, "onafter TaskPatrol")
     local patrolPoint
     if Airbase.getByName(self.patrolName) then
         patrolPoint = Airbase.getByName(self.patrolName):getPoint()
@@ -2740,11 +2823,11 @@ function element:onafterTaskPatrol()
     self.patrolling = true
     self.attacking = false
     self.rtb = false
-    util:logInfo(self.debug, "%s is enroute to patrol %s", self.elementName, self.patrolName)
+    --util:logInfo(self.debug, "%s is enroute to patrol %s", self.capName, self.patrolName)
 end
 
-function element:onafterAttackTargets()
-    util:logInfo(self.debug, "onafter AttackTargets")
+function cap:onafterAttackTargets()
+    --util:logInfo(self.debug, "onafter AttackTargets")
     for i, unitName in pairs(self.detectedTargets) do
         if Unit.getByName(unitName) ~= nil then
             if Unit.getByName(unitName):getLife() >= 1 then
@@ -2772,8 +2855,8 @@ function element:onafterAttackTargets()
     end
 end
 
-function element:onafterRefreshTargets()
-    util:logInfo(self.debug, "onafter RefreshTargets")
+function cap:onafterRefreshTargets()
+    --util:logInfo(self.debug, "onafter RefreshTargets")
     for i, unitName in pairs(self.engagedTargets) do
         if Unit.getByName(unitName) == nil or Unit.getByName(unitName):isExist() == false then
             self.engagedTargets[i] = nil
@@ -2792,8 +2875,8 @@ function element:onafterRefreshTargets()
     end
 end
 
-function element:onafterRTB()
-    util:logInfo(self.debug, "onafter RTB")
+function cap:onafterRTB()
+    --util:logInfo(self.debug, "onafter RTB")
     local landingAirbase = Airbase.getByName(self.airbaseName)
     local landingVec3 = landingAirbase:getPoint()
     local taskRTB = {
@@ -2829,486 +2912,23 @@ function element:onafterRTB()
     self.rtb = true
 end
 
-function element:onafterLand(from, event, to, eventData)
-    util:logInfo(self.debug, "onafter Land")
+function cap:onafterLand(from, event, to, eventData)
+    --util:logInfo(self.debug, "onafter Land")
     self.resources = self.resources + 1
-    util:logInfo(self.debug, "%s has landed", eventData.initUnitName)
+    --util:logInfo(self.debug, "%s has landed", eventData.initUnitName)
 end
 
-function element:onafterEngineShutdown(from, event, to, eventData)
-    util:logInfo(self.debug, "onafter EngineShutdown")
-    util:logInfo(self.debug, "%s has shutdown its engines", eventData.initUnitName)
-    util:scheduleFunction(eventData.initUnit.destroy, eventData.initUnit, 15)
-end
-
---
---
--- ** Classes : Wrappers **
---
---
-
---[[
-
-@class #group
-
-@authors Wizard
-
-@description
-wrapper functions for DCS Class Group with additional methods available.
-
-@features
-- wrapped methods for DCS Group
-- extra methods not available with DCS Group
-- inherited methods from #handler
-
-@todo
-- redo documentation
-- readme
-- debugging
-
-@created Feb 6, 2022
-
-]]
-
-group = {}
-group.debug = true
-
---[[ get a new instance of a group object by name
-- returns any object that has been placed in the mission or dynamically born
-- @param #group self
-- @param #string groupName
-- @return #group self
-]]
-function group:getByName(groupName)
-    local self = util:inherit(self, handler:new())
-    self.groupName = groupName
-    if not self.groupTemplate then
-        if groupsByName[groupName] then
-            self.groupTemplate = util:deepCopy(groupsByName[groupName])
-            util:logInfo(self.debug, "%s found in groupsByName, no template was created previously", groupName)
-        else
-            util:logError(self.debug, "%s could not be found in groupsByName", groupName)
-        end
-    else
-        util:logInfo(self.debug, "%s has already created a template, skipping", groupName)
-    end
-    return self
+function cap:onafterEngineShutdown(from, event, to, eventData)
+    --util:logInfo(self.debug, "onafter EngineShutdown")
+    --util:logInfo(self.debug, "%s has shutdown its engines", eventData.initUnitName)
+    util:scheduleFunction(Unit.destroy, eventData.initUnit, 15)
 end
 
 --
 --
--- ** ssf class #group methods ** --
+-- ** classes : wrapper **
 --
 --
-
---[[ handle a specfic event for the units within the group
-- @param #group self
-- @param #enum event [the event that will be triggered for the units within the group, eg: event.land
-- @return #group self]]
-function group:handleEvent(event)
-    self:onGroupEvent(self, event, self.groupName)
-    util:logInfo(self.debug, "%s is now handling event %s", self.groupName, event.name)
-    return self
-end
-
---[[ return a #unit object within the group object by its current index or name
-- @param #group self
-- @poram #variable unitVar [this can be the current index (id) of the unit or its name]
-- @return #unit self
-]]
-function group:getUnit(unitVar)
-    if type(unitVar) == "string" then
-        return unit:getByName(unitVar)
-    elseif type(unitVar) == "number" then
-        local unitName = self.groupTemplate.units[unitVar].name
-        return unit:getByName(unitName)
-    end
-end
-
---[[ return an array of #unit objects within the group object
-- @param #group self
-- @return #array #units [array of unit objects]
-]]
-function group:getUnits()
-    local units = {}
-    for _, unit in pairs(self.groupTemplate.units) do
-        units[#units+1] = unit:getByName(unit.name)
-    end
-    return units
-end
-
---[[ return a deep copy of the group object template
-- @param #group self
-- @return #table groupTemplate
-]]
-function group:getTemplate()
-    return util:deepCopy(self.groupTemplate)
-end
-
---[[ return the average speed of the group object in kilometers per hour
-- @param #group self
-- @return #number avgVelocityKMH
-]]
-function group:getAvgVelocityKMH()
-    if self:isAlive() then
-        local groupSize = self:getDCSGroup():getSize()
-        local avgVelocityKMH = 0
-        for _, unit in pairs(self:getDCSGroup():getUnits()) do
-            local unitVelocityKMH = util:getVelocityKMH(unit)
-            avgVelocityKMH = avgVelocityKMH + unitVelocityKMH
-        end
-        return avgVelocityKMH / groupSize
-    end
-end
-
---[[ get the average vec3 point from the group object
-- @param #group self
-- @return #table avgVec3 [table of x, y, and z coordinates from the average point of the group]
-]]
-function group:getPoint()
-    if self:isAlive() then
-        local avgX, avgY, avgZ, count = 0, 0, 0, 0
-        local dcsUnits = self:getDCSUnits()
-        for _, unit in pairs(dcsUnits) do
-            local unitVec3 = unit:getPoint()
-            avgX = avgX + unitVec3.x
-            avgY = avgY + unitVec3.y
-            avgZ = avgZ + unitVec3.z
-            count = count + 1
-        end
-        if count ~= 0 then
-            local avgVec3 = {
-                ["x"] = avgX/count,
-                ["y"] = avgY/count,
-                ["z"] = avgZ/count
-            }
-            return avgVec3
-        end
-    end
-    return nil
-end
-
---[[ get the average amount of fuel remaining for the group object
-- @param #group self
-- @rreturn #number avgFuel
-]]
-function group:getAvgFuel()
-    if self:isAlive() then
-        local dcsUnits = self:getDCSGroup():getUnits()
-        local totalFuel = 0
-        for _, unit in pairs(dcsUnits) do
-            totalFuel = totalFuel + unit:getFuel()
-        end
-        local avgFuel = totalFuel / #dcsUnits
-        return avgFuel
-    end
-    return nil
-end
-
---[[ return the average percentage of health for the group object
-- @param #group self
-- @return #number health [return example: ]
-]]
-function group:getAvgHealth()
-    if self:isAlive() then
-        local dcsUnits = self:getDCSGroup():getUnits()
-        local totalHealth = 0
-        for _, unit in pairs(dcsUnits) do
-            totalHealth = totalHealth + unit:getLife()/unit:getLife0()
-        end
-        local avgHealth = totalHealth / #dcsUnits * 100
-        return avgHealth
-    end
-    return nil
-end
-
---[[ return the average ammount of ammo a group has
-- note: the number returned will be a count of each weapon returned thats on a pylon (not included is gun rouunds)
-- @param #group self
-- @return #number avgAmmo
-]]
-function group:getAvgAmmo()
-    if self:isAlive() then
-        local ammoCount = 0
-        for _, unit in pairs(self:getDCSGroup():getUnits()) do
-            local ammo = unit:getAmmo()
-            for _, ammoData in pairs(ammo) do
-                if ammoData.desc.category ~= 0 then -- missile, rocket, bomb
-                    ammoCount = ammoCount + ammoData.count
-                end
-            end
-        end
-        return ammoCount
-    end
-    return nil
-end
-
---[[ get targets detected by the group object
-- @param #group self
-- @param #table targets [array of detectionTypes]
-- @param #table categories [array of unit categories to detect eg: {Unit.Category.AIRPLANE, Unit.Category.HELICOPTER]
-- @param #number range [the max range that targets will be detected]
-- @return #table detectedTargets
-]]
-function group:getDetectedTargets(detection, categories, range)
-    if self:isAlive() then
-        local dcsController = self:getController()
-        local targetsInRange = {}
-        local detectedTargets = dcsController:getDetectedTargets(detection[1] or nil, detection[2] or nil, detection[3] or nil)
-        for _, targetData in pairs(detectedTargets) do
-            local targetObject = targetData.object
-            local targetName = targetObject:getName()
-            local targetCategory = targetObject:getDesc().category
-            if type(categories) ~= "table" then
-                categories = {categories}
-            end
-            for _, category in pairs(categories) do
-                if category == targetCategory then
-                    local targetVec3 = targetObject:getPoint()
-                    local elementVec3 = self:getPoint()
-                    local seperation = util:getDistance(elementVec3, targetVec3)
-                    if seperation <= range then
-                        targetsInRange[#targetsInRange+1] = targetName
-                    end
-                end
-            end
-        end
-        return targetsInRange
-    end
-    return nil
-end
-
---[[ return a boolean if the group object is alive
-- @param #group self
-- @return #boolean groupAlive [true if any unit is determined to be alive]
-]]
-function group:isAlive()
-    if self:getDCSGroup() then
-        local dcsUnits = self:getDCSGroup():getUnits()
-        for _, unit in pairs(dcsUnits) do
-            if unit:isActive() then
-                if unit:isExist() then
-                    if unit:getLife() ~= 0 then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
---[[ return a boolean if the group object is in air
-- @param #group self
-- @return #boolean groupInAir [false if any unit is determined to be not in air]
-]]
-function group:inAir()
-    if self:isAlive() then
-        local groupInAir = true
-        local dcsUnits = self:getDCSGroup():getUnits()
-        for _, unit in pairs(dcsUnits) do
-            if unit:inAir() == false then
-                groupInAir = false
-                break
-            end
-        end
-        return groupInAir
-    end
-    return nil
-end
-
-function group:inZone(zoneName)
-    if zonesByName[zoneName] then
-        if self:isAlive() then
-            local units = self:getDCSUnits()
-            local triggerZone = util:deepCopy(zonesByName[zoneName])
-            local zonePoint = {["x"] = triggerZone.x, ["z"] = triggerZone.y}
-            local zoneRadius = triggerZone.radius
-            local inZone = true
-            for _, unit in pairs(units) do
-                local unitPoint = unit:getPoint()
-                if ((unitPoint.x - zonePoint.x)^2 + (unitPoint.z - zonePoint.z)^2)^0.5 >= zoneRadius then
-                    inZone = false
-                    break
-                end
-            end
-            return inZone
-        end
-    else
-        util:logError(self.debug, "%s is not a trigger zone defined in the mission editor", zoneName)
-    end
-end
-
---
---
--- ** DCS Class #Group Wrapper Methods ** --
---
---
-
---[[ return the DCS Class Group from the group object
-- @param #group self
-- @return DCS#Group
-]]
-function group:getDCSGroup()
-    if Group.getByName(self.groupName) then
-        return Group.getByName(self.groupName)
-    end
-    return self
-end
-
---[[ get the category from the group object
-- Group.Category enums found here: https://wiki.hoggitworld.com/view/DCS_Class_Group
-- @param #group self
-- @return #enum groupCategory
-]]
-function group:getCategory()
-    if self:getDCSGroup() then
-        return self:getDCSGroup():getDesc().category
-    end
-    return self
-end
-
---[[ get the coalition from the group object
--- coalition.side enums found here: https://wiki.hoggitworld.com/view/DCS_singleton_coalition
-- @param #group self
-- @return #number groupCoalition
-]]
-function group:getCoalition()
-    if self:getDCSGroup() then
-        return self:getDCSGroup():getCoalition()
-    end
-    return self
-end
-
---[[ get the group name from the group object
-- @param #group self
-- @return #string groupName
-]]
-function group:getName()
-    return self.groupTemplate.name
-end
-
---[[ get the DCS #Group ID from the group object
-- @param #group self
-- @return #number groupId
-]]
-function group:getID()
-    if self:getDCSGroup() then
-        local groupId = self:getDCSGroup():getID()
-        return groupId
-    end
-    return nil
-end
-
---[[ get a DCS Class #Unit from the group object
-- @param #group self
-- @param #number unitId [the unitId within the group to obtain]
-- @return DCS#Unit dcsUnit
-]]
-function group:getDCSUnit(unitId)
-    if self:getDCSGroup() then
-        local dcsUnit = self:getDCSGroup():getUnit(unitId)
-        return dcsUnit
-    end
-    return nil
-end
-
---[[ get all the DCS#Units from the group object
-- @param #group self
-- #return DCS#Units units
-]]
-function group:getDCSUnits()
-    if self:getDCSGroup() then
-        local dcsUnits = self:getDCSGroup():getUnits()
-        return dcsUnits
-    end
-    return nil
-end
-
---[[ get the current size of the group object
-- @param #group self
-- @return #number groupSize
-]]
-function group:getSize()
-    if self:getDCSGroup() then
-        local groupSize = self:getDCSGroup():getSize()
-        return groupSize
-    end
-    return 0
-end
-
---[[ get the inital size of the group object
-- this does not return the current size but the size of group template
-- @param #group self
-- @return #number initGroupSize
-]]
-function group:getInitialSize()
-    if self:getDCSGroup() then
-        local initGroupSize = self:getDCSGroup():getInitialSize()
-        return initGroupSize
-    end
-    return nil
-end
-
---[[ get the DCS#Controller for the group object
-- @param #group self
-- @return DCS#GroupController
-]]
-function group:getController()
-    if self:getDCSGroup() then
-        local groupController = self:getDCSGroup():getController()
-        return groupController
-    end
-    return nil
-end
-
---[[ return a boolean if the group object exists currently
-- @param #groups self
-- @return #boolean groupExist
-]]
-function group:isExist()
-    if self:getDCSGroup() then
-        local groupExist = self:getDCSGroup():isExist()
-        return groupExist
-    end
-    return false
-end
-
---[[ activate a DCS Group of units
-- @param #group self
-- @return #group self
-]]
-function group:activate()
-    if self:getDCSGroup() then
-        if not self:getDCSGroup():isActive() then
-            self:getDCSGroup():activate()
-        end
-    end
-    return self
-end
-
---[[ destroy the group object with no explosion
-- @param #group self
-- @return #group self
-]]
-function group:destroy()
-    if self:getDCSGroup() then
-        self:getDCSGroup():destroy()
-    end
-    return self
-end
-
---[[ enable the group object to have its radar emitters on or off
-- @param #group self
-- @param #boolean emission [if true the group will enable its radars]
-- @return #group self
-]]
-function group:enableEmission(emission)
-    if self:getDCSGroup() then
-        self:getDCSGroup():enableEmission(emission)
-        return self
-    end
-end
 
 --[[
 
@@ -3338,10 +2958,13 @@ unit = {}
 - @return #unit self
 ]]
 function unit:getByName(unitName)
-    local self = util:inherit(self, handler:new())
-    self.unitName = unitName
-    self.unitTemplate = util:deepCopy(unitsByName[unitName])
-    return self
+    if unitsByName[unitName] then
+        local self = util:inherit(self, handler:new())
+        self.unitName = unitName
+        self.unitTemplate = util:deepCopy(unitsByName[unitName])
+        return self
+    end
+    return nil
 end
 
 --
@@ -3365,15 +2988,17 @@ end
 ]]
 function unit:getGroup()
     local unitGroupName = self.unitTemplate.groupName
-    if group:getByName(unitGroupName) then
-        return group:getByName(unitGroupName)
+    local group = group:getByName(unitGroupName)
+    if group then
+        return group
     end
+    return nil
 end
 
 --[[ return a table needed for a units payload
 - note: this function does not obtain a *current* payload, only what is set via the mission editor
 - @param #unit self
-- @param #string unitName [the unit name to get the payload from]
+- @param #string unitName [the unit name to return the payload from]
 - @return #table payload
 ]]
 function unit:getPayload(unitName)
@@ -3381,6 +3006,7 @@ function unit:getPayload(unitName)
         local payload = util:deepCopy(payloadsByUnitName[unitName])
         return payload
     end
+    return nil
 end
 
 --[[ return the current livery namne for the unit object
@@ -3388,8 +3014,8 @@ end
 - @return #string liveryName
 ]]
 function unit:getLivery()
-    local liverytName = self.unitTemplate.livery_id
-    return liverytName
+    local liveryName = self.unitTemplate.livery_id
+    return liveryName
 end
 
 --[[ return the dcs class #Unit from the unit object
@@ -3397,17 +3023,19 @@ end
 - @return DCS Class #Unit
 ]]
 function unit:getDCSUnit()
-    if Unit.getByName(self.unitName) then
-        return Unit.getByName(self.unitName)
+    local unit = Unit.getByName(self.unitName)
+    if unit then
+        return unit
     end
     return nil
 end
 
 --[[ return the country of the unit object
 - @param #unit self
-- @return #number countryId]]
+- @return #number countryId
+]]
 function unit:getCountry()
-    local countryId = self.unitTemplate.country
+    local countryId = self.unitTemplate.countryId
     return countryId
 end
 
@@ -3416,11 +3044,12 @@ end
 - @return #boolean alive [true if the unit is alive]
 ]]
 function unit:isAlive()
-    local alive = false
-    if self:getDCSUnit() then
-        if self:isActive() then
-            if self:isExist() then
-                if self:getHealth() > 0 then
+    local unit = self:getDCSUnit()
+    local alive = nil
+    if unit then
+        if unit:isActive() then
+            if unit:isExist() then
+                if unit:getLife() >= 1 and unit:getFuel() == 0 then
                     alive = true
                     return alive
                 end
@@ -3430,18 +3059,19 @@ function unit:isAlive()
     return alive
 end
 
---
---
 -- ** DCS Class #Unit Wrapper Methods ** --
---
---
 
 --[[ return a boolean if the unit is currently activated or not
 - @param #unit self
-- @return #boolean [true if the unit is now activated where it was previously late activated]
+- @return #boolean active [true if the unit is now activated where it was previously late activated]
 ]]
 function unit:isActive()
-    return unit:getDCSUnit():isActive()
+    local unit = self:getDCSUnit()
+    if unit then
+        local active = unit:isActive()
+        return active
+    end
+    return nil
 end
 
 --[[ return the players name in control of the unit
@@ -3449,9 +3079,10 @@ end
 - @return #string playerName [returns the name of a player if they are occupied in the unit
 ]]
 function unit:getPlayerName()
-    if self:isAlive() then
-        if self:getDCSUnit():getPlayerName() then
-            local playerName = self:getDCSUnit():getPlayerName()
+    local unit = self:getDCSUnit()
+    if unit then
+        local playerName = unit:getPlayerName()
+        if playerName then
             return playerName
         end
     end
@@ -3463,151 +3094,219 @@ end
 - @return #number unitId
 ]]
 function unit:getID()
-    if self:isAlive() then
-        return self:getDCSUnit():getID()
+    local unit = self:getDCSUnit()
+    if unit then
+        local unitId = unit:getID()
+        return unitId
     end
     return nil
 end
 
---[[ get the default index of the unit within the group
+--[[ return the default index of the unit object within the group
 - @param #unit self
-- @return #number index]]
+- @return #number unitIndex]]
 function unit:getNumber()
-    if self:isAlive() then
-        return self:getDCSUnit():getNumber()
+    local unit = self:getDCSUnit()
+    if unit then
+        local unitIndex = unit:getNumber()
+        return unitIndex
     end
+    return nil
 end
 
---[[ get the dcs class #Controller from the unit object
+--[[ return the dcs class #Controller from the unit object
 - @param #unit self
 - @return DCS Class #Controller
 ]]
 function unit:getController()
-    if self:isAlive() then
-        return self:getDCSUnit():getController()
+    local unit = self:getDCSUnit()
+    if unit then
+        local unitController = unit:getController()
+        return unitController
     end
     return nil
 end
 
---[[ get the dcs class #Group from the unit object
+--[[ return the dcs class #Group from the unit object
 - @param #unit self
 - @return DCS Class #Group
 ]]
 function unit:getDCSGroup()
-    if self:isAlive() then
-        return self:getDCSUnit():getGroup()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getGroup()
     end
     return nil
 end
 
+--[[ return the callsign of the unit object
+- @param #unit self
+- @return #string callsign
+]]
 function unit:getCallsign()
-    return self:getDCSUnit():getCallsign()
+    local unit = self:getDCSUnit()
+    if unit then
+        local callsign = unit:getCallsign()
+        return callsign
+    end
+    return nil
 end
 
+--[[ return the current life of the unit object
+-- less than 1 is considered dead
+- @param #unit
+- @return #number life
+]]
 function unit:getLife()
-    if self:isAlive() then
-        return self:getDCSUnit():getLife()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getLife()
     end
+    return nil
 end
 
+--[[ return the default max life value
+- @param #unit self
+- @return #number life0
+]]
 function unit:getLife0()
-    if self:isAlive() then
-        return self:getDCSUnit():getLife0()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getLife0()
     end
+    return nil
 end
 
+--[[ return the current fuel remaining as a percentage
+- @param #unit self
+- @return #number fuel [eg; 0.55]
+]]
 function unit:getFuel()
-    if self:isAlive() then
-        return self:getDCSUnit():getFuel()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getFuel()
     end
+    return nil
 end
 
+--[[ return an ammo table containing a description table
+- @param #unit self
+- @return #table ammo
+]]
 function unit:getAmmo()
-    if self:isAlive() then
-        return self:getDCSUnit():getAmmo()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getAmmo()
     end
+    return nil
 end
 
+--[[ return a table containing the sesnors onboard
+- @param #unit self
+- @param #table sensors
+]]
 function unit:getSensors()
-    if self:isAlive() then
-        return self:getDCSUnit():getSensors()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getSensors()
     end
+    return nil
 end
 
 function unit:hasSensors()
-    if self:isAlive() then
-        return self:getDCSUnit():hasSensors()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:hasSensors()
     end
+    return nil
 end
 
 function unit:getRadar()
-    if self:isAlive() then
-        return self:getDCSUnit():getRadar()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getRadar()
     end
+    return nil
 end
 
 function unit:getDrawArgumentValue()
-    if self:isAlive() then
-        return self:getDCSUnit():getDrawArgumentValue()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getDrawArgumentValue()
     end
+    return nil
 end
 
 function unit:getNearestCargos()
-    if self:isAlive() then
-        return self:getDCSUnit():getNearestCargos()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getNearestCargos()
     end
+    return nil
 end
 
 function unit:enableEmission()
-    if self:isAlive() then
-        return self:getDCSUnit():enableEmission()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:enableEmission()
     end
+    return nil
 end
 
 function unit:getDescentCapacity()
-    if self:isAlive() then
-        return self:getDCSUnit():getDescentCapacity()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getDescentCapacity()
     end
+    return nil
 end
 
 function unit:isExist()
-    if self:getDCSUnit() then
-        return self:getDCSUnit():isExist()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:isExist()
     end
     return nil
 end
 
 function unit:destroy()
-    if self:isAlive() then
-        self:getDCSUnit():destroy()
+    local unit = self:getDCSUnit()
+    if unit then
+        unit:destroy()
     end
     return self
 end
 
 function unit:getCategory()
-    if self:isAlive() then
-        return self:getDCSUnit():getDesc().category
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getDesc().category
     end
     return nil
 end
 
 function unit:getCoalition()
-    if self:isAlive() then
-        return self:getDCSUnit():getCoalition()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getCoalition()
     end
     return nil
 end
 
 function unit:getTypeName()
-    if self:isAlive() then
-        return self:getDCSUnit():getTypeName()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getTypeName()
     end
+    return nil
 end
 
 function unit:getDesc()
-    if self:isAlive() then
-        return self:getDCSUnit():getDesc()
+    local unit = self:getDCSUnit()
+    if unit then
+        return unit:getDesc()
     end
+    return nil
 end
 
 function unit:hasAttribute()
@@ -3681,10 +3380,13 @@ static = {}
 - @return #group self
 ]]
 function static:getByName(staticName)
-    local self = util:inherit(self, handler:new())
-    self.staticName = staticName
-    self.staticTemplate = util.deepCopy(staticsByName[staticName])
-    return self
+    if staticsByName[staticName] then
+        local self = util:inherit(self, handler:new())
+        self.staticName = staticName
+        self.staticTemplate = util:deepCopy(staticsByName[staticName])
+        return self
+    end
+    return nil
 end
 
 -- ** ssf class #static methods** --
@@ -3820,10 +3522,461 @@ wrapper functions for DCS Class Airbase with additional methods available.
 airbase = {}
 
 function airbase:getByName(airbaseName)
-    local self = util:inherit(self, handler:new())
-    self.airbaseName = airbaseName
-    self.airbaseTemplate = airbasesByName[airbaseName]
+    if airbasesByName[airbaseName] then
+        local self = util:inherit(self, handler:new())
+        self.airbaseName = airbaseName
+        self.airbaseTemplate = util:deepCopy(airbasesByName[airbaseName])
+        return self
+    end
+    return nil
+end
+
+--[[
+
+@class #group
+
+@authors Wizard
+
+@description
+wrapper functions for DCS Class Group with additional methods available.
+
+@features
+- wrapped methods for DCS Group
+- extra methods not available with DCS Group
+- inherited methods from #handler
+
+@todo
+- redo documentation
+- readme
+- debugging
+
+@created Feb 6, 2022
+
+]]
+
+group = {}
+group.debug = true
+
+--[[ get a new instance of a group object by name
+- returns any object that has been placed in the mission or dynamically born
+- @param #group self
+- @param #string groupName
+- @return #group self
+]]
+function group:getByName(groupName)
+    if groupsByName[groupName] then
+        local self = util:inherit(self, handler:new())
+        self.groupName = groupName
+        self.groupTemplate = util:deepCopy(groupsByName[groupName])
+        return self
+    end
+    return nil
+end
+
+--
+--
+-- ** ssf class #group methods ** --
+--
+--
+
+--[[ handle a specfic event for the units within the group
+- @param #group self
+- @param #enum event [the event that will be triggered for the units within the group, eg: event.land
+- @return #group self]]
+function group:handleEvent(event)
+    self:onGroupEvent(self, event, self.groupName)
     return self
+end
+
+--[[ return a #unit object within the group object by its current index or name
+- @param #group self
+- @poram #variable unitVar [this can be the current index (id) of the unit or its name]
+- @return #unit self
+]]
+function group:getUnit(unitVar)
+    if type(unitVar) == "string" then
+        return unit:getByName(unitVar)
+    elseif type(unitVar) == "number" then
+        local unitName = self.groupTemplate.units[unitVar].name
+        return unit:getByName(unitName)
+    end
+end
+
+--[[ return an array of #unit objects within the group object
+- @param #group self
+- @return #array #units [array of unit objects]
+]]
+function group:getUnits()
+    local units = {}
+    for _, unit in pairs(self.groupTemplate.units) do
+        units[#units+1] = unit:getByName(unit.name)
+    end
+    return units
+end
+
+--[[ return a deep copy of the group object template
+- @param #group self
+- @return #table groupTemplate
+]]
+function group:getTemplate()
+    return util:deepCopy(self.groupTemplate)
+end
+
+--[[ return the average speed of the group object in kilometers per hour
+- @param #group self
+- @return #number avgVelocityKMH
+]]
+function group:getAvgVelocityKMH()
+    if self:isAlive() then
+        local groupSize = self:getDCSGroup():getSize()
+        local avgVelocityKMH = 0
+        for _, unit in pairs(self:getDCSGroup():getUnits()) do
+            local unitVelocityKMH = util:getVelocityKMH(unit)
+            avgVelocityKMH = avgVelocityKMH + unitVelocityKMH
+        end
+        return avgVelocityKMH / groupSize
+    end
+end
+
+--[[ return the average vec3 point from the group object
+- @param #group self
+- @return #table avgVec3 [table of x, y, and z coordinates from the average point of the group]
+]]
+function group:getPoint()
+    if self:isAlive() then
+        local avgX, avgY, avgZ, count = 0, 0, 0, 0
+        local dcsUnits = self:getDCSUnits()
+        for _, unit in pairs(dcsUnits) do
+            local unitVec3 = unit:getPoint()
+            avgX = avgX + unitVec3.x
+            avgY = avgY + unitVec3.y
+            avgZ = avgZ + unitVec3.z
+            count = count + 1
+        end
+        if count ~= 0 then
+            local avgVec3 = {
+                ["x"] = avgX/count,
+                ["y"] = avgY/count,
+                ["z"] = avgZ/count
+            }
+            return avgVec3
+        end
+    end
+    return nil
+end
+
+--[[ return the average amount of fuel remaining for the group object
+- @param #group self
+- @rreturn #number avgFuel
+]]
+function group:getAvgFuel()
+    if self:isAlive() then
+        local dcsUnits = self:getDCSGroup():getUnits()
+        local totalFuel = 0
+        for _, unit in pairs(dcsUnits) do
+            totalFuel = totalFuel + unit:getFuel()
+        end
+        local avgFuel = totalFuel / #dcsUnits
+        return avgFuel
+    end
+    return nil
+end
+
+--[[ return the average percentage of health for the group object
+- @param #group self
+- @return #number health [return example: ]
+]]
+function group:getAvgHealth()
+    if self:isAlive() then
+        local dcsUnits = self:getDCSGroup():getUnits()
+        local totalHealth = 0
+        for _, unit in pairs(dcsUnits) do
+            totalHealth = totalHealth + unit:getLife()/unit:getLife0()
+        end
+        local avgHealth = totalHealth / #dcsUnits * 100
+        return avgHealth
+    end
+    return nil
+end
+
+--[[ return the average ammount of ammo a group has
+- note: the number returned will be a count of each weapon returned thats on a pylon (not included is gun rouunds)
+- @param #group self
+- @return #number avgAmmo
+]]
+function group:getAvgAmmo()
+    if self:isAlive() then
+        local ammoCount = 0
+        for _, unit in pairs(self:getDCSGroup():getUnits()) do
+            local ammo = unit:getAmmo()
+            for _, ammoData in pairs(ammo) do
+                if ammoData.desc.category ~= 0 then -- missile, rocket, bomb
+                    ammoCount = ammoCount + ammoData.count
+                end
+            end
+        end
+        return ammoCount
+    end
+    return nil
+end
+
+--[[ get targets detected by the group object
+- @param #group self
+- @param #table targets [array of detectionTypes]
+- @param #table categories [array of unit categories to detect eg: {Unit.Category.AIRPLANE, Unit.Category.HELICOPTER]
+- @param #number range [the max range that targets will be detected]
+- @return #table detectedTargets
+]]
+function group:getDetectedTargets(detection, categories, range)
+    if self:isAlive() then
+        local dcsController = self:getController()
+        local targetsInRange = {}
+        local detectedTargets = dcsController:getDetectedTargets(detection[1] or nil, detection[2] or nil, detection[3] or nil)
+        for _, targetData in pairs(detectedTargets) do
+            local targetObject = targetData.object
+            local targetName = targetObject:getName()
+            local targetCategory = targetObject:getDesc().category
+            if type(categories) ~= "table" then
+                categories = {categories}
+            end
+            for _, category in pairs(categories) do
+                if category == targetCategory then
+                    local targetVec3 = targetObject:getPoint()
+                    local selfVec3 = self:getPoint()
+                    local seperation = util:getDistance(selfVec3, targetVec3)
+                    if seperation <= range then
+                        targetsInRange[#targetsInRange+1] = targetName
+                    end
+                end
+            end
+        end
+        return targetsInRange
+    end
+    return nil
+end
+
+--[[ return a boolean if the group object is alive
+- @param #group self
+- @return #boolean groupAlive [true if any unit is determined to be alive]
+]]
+function group:isAlive()
+    if self:getDCSGroup() then
+        local dcsUnits = self:getDCSGroup():getUnits()
+        for _, unit in pairs(dcsUnits) do
+            if unit:isActive() then
+                if unit:isExist() then
+                    if unit:getLife() ~= 0 then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+--[[ return a boolean if the group object is in air
+- @param #group self
+- @return #boolean groupInAir [false if any unit is determined to be not in air]
+]]
+function group:inAir()
+    if self:isAlive() then
+        local groupInAir = true
+        local dcsUnits = self:getDCSGroup():getUnits()
+        for _, unit in pairs(dcsUnits) do
+            if unit:inAir() == false then
+                groupInAir = false
+                break
+            end
+        end
+        return groupInAir
+    end
+    return nil
+end
+
+function group:inZone(zoneName)
+    if zonesByName[zoneName] then
+        if self:isAlive() then
+            local units = self:getDCSUnits()
+            local triggerZone = util:deepCopy(zonesByName[zoneName])
+            local zonePoint = {["x"] = triggerZone.x, ["z"] = triggerZone.y}
+            local zoneRadius = triggerZone.radius
+            local inZone = true
+            for _, unit in pairs(units) do
+                local unitPoint = unit:getPoint()
+                if ((unitPoint.x - zonePoint.x)^2 + (unitPoint.z - zonePoint.z)^2)^0.5 >= zoneRadius then
+                    inZone = false
+                    break
+                end
+            end
+            return inZone
+        end
+    else
+        util:logError(self.debug, "%s is not a trigger zone defined in the mission editor", zoneName)
+    end
+end
+
+-- ** DCS Class #Group Wrapper Methods ** --
+
+--[[ return the DCS Class Group from the group object
+- @param #group self
+- @return DCS#Group
+]]
+function group:getDCSGroup()
+    local _group = Group.getByName(self.groupName)
+    if _group then return _group end
+    return nil
+end
+
+--[[ return the category from the group object
+- Group.Category enums found here: https://wiki.hoggitworld.com/view/DCS_Class_Group
+- @param #group self
+- @return #enum groupCategory
+]]
+function group:getCategory()
+    return self:getDesc().category
+end
+
+--[[ return the coalition from the group object
+-- coalition.side enums found here: https://wiki.hoggitworld.com/view/DCS_singleton_coalition
+- @param #group self
+- @return #number groupCoalition
+]]
+function group:getCoalition()
+    if self:getDCSGroup() then
+        return self:getDCSGroup():getCoalition()
+    end
+    return self
+end
+
+--[[ return the group name from the group object
+- @param #group self
+- @return #string groupName
+]]
+function group:getName()
+    return self.groupTemplate.name
+end
+
+--[[ return the DCS #Group ID from the group object
+- @param #group self
+- @return #number groupId
+]]
+function group:getID()
+    if self:getDCSGroup() then
+        local groupId = self:getDCSGroup():getID()
+        return groupId
+    end
+    return nil
+end
+
+--[[ get a DCS Class #Unit from the group object
+- @param #group self
+- @param #number unitId [the unitId within the group to obtain]
+- @return DCS#Unit dcsUnit
+]]
+function group:getDCSUnit(unitId)
+    if self:getDCSGroup() then
+        local dcsUnit = self:getDCSGroup():getUnit(unitId)
+        return dcsUnit
+    end
+    return nil
+end
+
+--[[ get all the DCS#Units from the group object
+- @param #group self
+- #return DCS#Units units
+]]
+function group:getDCSUnits()
+    if self:getDCSGroup() then
+        local dcsUnits = self:getDCSGroup():getUnits()
+        return dcsUnits
+    end
+    return nil
+end
+
+--[[ return the current size of the group object
+- @param #group self
+- @return #number groupSize
+]]
+function group:getSize()
+    if self:getDCSGroup() then
+        local groupSize = self:getDCSGroup():getSize()
+        return groupSize
+    end
+    return 0
+end
+
+--[[ return the inital size of the group object
+- this does not return the current size but the size of group template
+- @param #group self
+- @return #number initGroupSize
+]]
+function group:getInitialSize()
+    if self:getDCSGroup() then
+        local initGroupSize = self:getDCSGroup():getInitialSize()
+        return initGroupSize
+    end
+    return nil
+end
+
+--[[ return the DCS#Controller for the group object
+- @param #group self
+- @return DCS#GroupController
+]]
+function group:getController()
+    if self:getDCSGroup() then
+        local groupController = self:getDCSGroup():getController()
+        return groupController
+    end
+    return nil
+end
+
+--[[ return a boolean if the group object exists currently
+- @param #groups self
+- @return #boolean groupExist
+]]
+function group:isExist()
+    if self:getDCSGroup() then
+        local groupExist = self:getDCSGroup():isExist()
+        return groupExist
+    end
+    return false
+end
+
+--[[ activate a DCS Group of units
+- @param #group self
+- @return #group self
+]]
+function group:activate()
+    if self:getDCSGroup() then
+        if not self:getDCSGroup():isActive() then
+            self:getDCSGroup():activate()
+        end
+    end
+    return self
+end
+
+--[[ destroy the group object with no explosion
+- @param #group self
+- @return #group self
+]]
+function group:destroy()
+    if self:getDCSGroup() then
+        self:getDCSGroup():destroy()
+    end
+    return self
+end
+
+--[[ enable the group object to have its radar emitters on or off
+- @param #group self
+- @param #boolean emission [if true the group will enable its radars]
+- @return #group self
+]]
+function group:enableEmission(emission)
+    if self:getDCSGroup() then
+        self:getDCSGroup():enableEmission(emission)
+        return self
+    end
 end
 
 util:logInfo(debugger, "successfully loaded SSF v%d.%d.%d", major, minor, patch)

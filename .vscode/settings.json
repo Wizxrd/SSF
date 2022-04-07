@@ -20,9 +20,7 @@
     "birth",
     "fsm",
     "handler",
-    "element",
-    "drone",
-    "group",
+    "cap",
     "lfs",
     "smoke",
     "attribute",
@@ -31,6 +29,6 @@
     "country",
     "log",
     "airbase",
-    "search"
+    "search",
   ]
 }
