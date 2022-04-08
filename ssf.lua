@@ -598,6 +598,7 @@ useful utility functions that help with logging, messages, conversions, table ma
 ]]
 
 util = {}
+util.__index = setmetatable({}, util)
 
 --[[ send a message to dcs.log under the prefix of "INFO SSF"
 - @param #string msg [the message to send]
@@ -1590,7 +1591,6 @@ function handler:onEvent(event)
         if self.events[event.id] ~= nil and event.id == self.events[event.id].id then
             local _event = self.events[event.id]
             local eventData = {}
-
             if event.initiator ~= nil then
                 eventData.initUnit = event.initiator
                 eventData.initUnitName = event.initiator:getName()
@@ -1643,7 +1643,7 @@ function handler:onEvent(event)
             -- check if the event is for a group
             if _event.group then
                     -- its for a group, now lets see if its for our group
-                if eventData.initGroupName == _event.class.groupName     then
+                if eventData.initGroupName == _event.class.groupName then
                     -- its for our group, now lets return the unit in that group to the onafter/onAfter methods for the requesting class
                     local class = _event.class -- the class that called the handler
                     local eventMethod = _event.event -- the fsm method
@@ -2289,7 +2289,7 @@ function search:searchForGroupsOnce()
         end
         -- filter coalitions
         if self.filter.coalition then
-            if groupData.coalition == groupData.coalition then
+            if groupData.coalition == self.filter.coalition then
                 groups[#groups+1] = group:getByName(groupName)
             end
         end
@@ -3023,9 +3023,9 @@ end
 - @return DCS Class #Unit
 ]]
 function unit:getDCSUnit()
-    local unit = Unit.getByName(self.unitName)
-    if unit then
-        return unit
+    local dcsUnit = Unit.getByName(self.unitName)
+    if dcsUnit then
+        return dcsUnit
     end
     return nil
 end
@@ -3044,32 +3044,29 @@ end
 - @return #boolean alive [true if the unit is alive]
 ]]
 function unit:isAlive()
-    local unit = self:getDCSUnit()
-    local alive = nil
-    if unit then
-        if unit:isActive() then
-            if unit:isExist() then
-                if unit:getLife() >= 1 and unit:getFuel() == 0 then
-                    alive = true
-                    return alive
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        if dcsUnit:isActive() then
+            if dcsUnit:isExist() then
+                if dcsUnit:getLife() >= 1 and dcsUnit:getFuel() == 0 then
+                    return true
                 end
             end
         end
     end
-    return alive
+    return false
 end
 
 -- ** DCS Class #Unit Wrapper Methods ** --
 
 --[[ return a boolean if the unit is currently activated or not
 - @param #unit self
-- @return #boolean active [true if the unit is now activated where it was previously late activated]
+- @return #boolean [true if the unit is now activated where it was previously late activated]
 ]]
 function unit:isActive()
-    local unit = self:getDCSUnit()
-    if unit then
-        local active = unit:isActive()
-        return active
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return unit:isActive()
     end
     return nil
 end
@@ -3079,8 +3076,8 @@ end
 - @return #string playerName [returns the name of a player if they are occupied in the unit
 ]]
 function unit:getPlayerName()
-    local unit = self:getDCSUnit()
-    if unit then
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
         local playerName = unit:getPlayerName()
         if playerName then
             return playerName
@@ -3091,25 +3088,24 @@ end
 
 --[[return the unique object identifier given to the unit object
 - @param #unit self
-- @return #number unitId
+- @return #number
 ]]
 function unit:getID()
-    local unit = self:getDCSUnit()
-    if unit then
-        local unitId = unit:getID()
-        return unitId
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return unit:getID()
     end
     return nil
 end
 
 --[[ return the default index of the unit object within the group
 - @param #unit self
-- @return #number unitIndex]]
+- @return #number
+]]
 function unit:getNumber()
-    local unit = self:getDCSUnit()
-    if unit then
-        local unitIndex = unit:getNumber()
-        return unitIndex
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return unit:getNumber()
     end
     return nil
 end
@@ -3119,10 +3115,9 @@ end
 - @return DCS Class #Controller
 ]]
 function unit:getController()
-    local unit = self:getDCSUnit()
-    if unit then
-        local unitController = unit:getController()
-        return unitController
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return unit:getController()
     end
     return nil
 end
@@ -3132,22 +3127,21 @@ end
 - @return DCS Class #Group
 ]]
 function unit:getDCSGroup()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getGroup()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getGroup()
     end
     return nil
 end
 
 --[[ return the callsign of the unit object
 - @param #unit self
-- @return #string callsign
+- @return #string
 ]]
 function unit:getCallsign()
-    local unit = self:getDCSUnit()
-    if unit then
-        local callsign = unit:getCallsign()
-        return callsign
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return unit:getCallsign()
     end
     return nil
 end
@@ -3155,201 +3149,288 @@ end
 --[[ return the current life of the unit object
 -- less than 1 is considered dead
 - @param #unit
-- @return #number life
+- @return #number
 ]]
 function unit:getLife()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getLife()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getLife()
     end
     return nil
 end
 
 --[[ return the default max life value
 - @param #unit self
-- @return #number life0
+- @return #number
 ]]
 function unit:getLife0()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getLife0()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getLife0()
     end
     return nil
 end
 
 --[[ return the current fuel remaining as a percentage
 - @param #unit self
-- @return #number fuel [eg; 0.55]
+- @return #number [eg; 0.55]
 ]]
 function unit:getFuel()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getFuel()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getFuel()
     end
     return nil
 end
 
 --[[ return an ammo table containing a description table
 - @param #unit self
-- @return #table ammo
+- @return #table
 ]]
 function unit:getAmmo()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getAmmo()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getAmmo()
     end
     return nil
 end
 
 --[[ return a table containing the sesnors onboard
 - @param #unit self
-- @param #table sensors
+- @param #table
 ]]
 function unit:getSensors()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getSensors()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getSensors()
     end
     return nil
 end
 
+--[[ return a boolean if the unit has sensors
+- @param #unit self
+- @return #boolean [true if unit has sensors]
+]]
 function unit:hasSensors()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:hasSensors()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:hasSensors()
     end
     return nil
 end
 
+--[[ return a boolean if the units radar is working as well as the actively tracked target #Object
+- @param #unit self
+- @return #boolean, dcs class #Object
+]]
 function unit:getRadar()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getRadar()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getRadar()
     end
     return nil
 end
 
+--[[ return the current value for an animation argument for the external model of the unit
+- @param #unit
+- @return #number [-1 to 1+]
+]]
 function unit:getDrawArgumentValue()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getDrawArgumentValue()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getDrawArgumentValue()
     end
     return nil
 end
 
+--[[ returns an array of friendly cargo objects sorted by distance from a helicopter unit
+- only works for helicopters
+- @param #unit self
+- @return #array dcs class #Objects
+]]
 function unit:getNearestCargos()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getNearestCargos()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getNearestCargos()
     end
     return nil
 end
 
-function unit:enableEmission()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:enableEmission()
+--[[ enable the radar emission for the unit
+- @param #unit self
+- @param #boolean [true or false to toggle the emission of a radar]
+- @return #unit self
+]]
+function unit:enableEmission(bool)
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:enableEmission(bool)
     end
     return nil
 end
 
+--[[ return the amount of infantry that can embark onto an aircraft
+- only for airplanes and helopters
+- @param #unit self
+- @return #number
+]]
 function unit:getDescentCapacity()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getDescentCapacity()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getDescentCapacity()
     end
     return nil
 end
 
+--[[ return a boolean if the unit currently exists or not
+- @param #unit self
+- @return #boolean [true if currently exists]
+]]
 function unit:isExist()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:isExist()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:isExist()
     end
     return nil
 end
 
+--[[ destroy the unit object with no explosion
+- @param #unit self
+- @return #unit self
+]]
 function unit:destroy()
-    local unit = self:getDCSUnit()
-    if unit then
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
         unit:destroy()
     end
     return self
 end
 
+--[[ return the category of the unit object
+- @param #unit self
+- @return #enum [eg; 1 for airplane]
+]]
 function unit:getCategory()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getDesc().category
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getDesc().category
     end
     return nil
 end
 
+--[[ return the coalition of the unit object
+- @param #unit self
+- @return #enum [eg; 1 for red, 2 for blue, 0 for neutral]
+]]
 function unit:getCoalition()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getCoalition()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getCoalition()
     end
     return nil
 end
 
+--[[ return the type name from the unit object
+- @param #unit self
+- @return #string [the unit type name. eg; "Mi-8"]
+]]
 function unit:getTypeName()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getTypeName()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getTypeName()
     end
     return nil
 end
 
+--[[ return the description table from the unit object
+- @param #unit self
+- @return #array
+]]
 function unit:getDesc()
-    local unit = self:getDCSUnit()
-    if unit then
-        return unit:getDesc()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getDesc()
     end
     return nil
 end
 
-function unit:hasAttribute()
-    if self:isAlive() then
-        return self:getDCSUnit():hasAttribute()
+--[[ return a boolean if the unit object has a specific attribute
+- @param #unit self
+- @param #string attribute [eg; "Planes"]
+]]
+function unit:hasAttribute(attribute)
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:hasAttribute(attribute)
     end
 end
 
+--[[ return the name of the unit object
+- @param #unit self
+- @return #string
+]]
 function unit:getName()
-    if self:isAlive() then
-        return self:getDCSUnit():getName()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getName()
     end
     return nil
 end
 
+--[[ return the current location by vec3 from the unit object
+- @param #unit self
+- @return #table
+]]
 function unit:getPoint()
-    if self:isAlive() then
-        return self:getDCSUnit():getPoint()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getPoint()
     end
+    return nil
 end
 
+--[[ return the current orientation vectors from the unit object
+- returns positional orientation in 3D space
+- @param #unit self
+- @return #table
+]]
 function unit:getPosition()
-    if self:isAlive() then
-        return self:getDCSUnit():getPosition()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getPosition()
     end
 end
 
+--[[ return the vec3 velocity vectors from the unit object
+- @param #unit self
+- @return #table
+]]
 function unit:getVelocity()
-    if self:isAlive() then
-        return self:getDCSUnit():getVelocity()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:getVelocity()
     end
+    return nil
 end
 
+--[[ return a unit objects description table by type name
+- @param #string unitTypeName
+- @return #table
+]]
 function unit:getDescByName(unitTypeName)
-    if self:isAlive() then
-        return self:getDCSUnit():getDescByName(unitTypeName)
-    end
+    return Unit.getDescByName(unitTypeName) or nil
 end
 
+--[[ return a boolean if the unit object is in air or not
+- @param #unit self
+- @return #boolean
+]]
 function unit:inAir()
-    if self:isAlive() then
-        return self:getDCSUnit():inAir()
+    local dcsUnit = self:getDCSUnit()
+    if dcsUnit then
+        return dcsUnit:inAir()
     end
+    return nil
 end
 
 --[[
@@ -3392,9 +3473,15 @@ end
 -- ** ssf class #static methods** --
 
 function static:isAlive()
-    if self:getDCSStaticObject() then
-        return self:isExist()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        if static:isExist() then
+            if static:getLife() >= 1 then
+                return true
+            end
+        end
     end
+    return false
 end
 
 function static:getDCSStaticObject()
@@ -3407,65 +3494,83 @@ end
 -- ** DCS Class #StaticObject Wrapper Methods ** --
 
 function static:getID()
-    if self:isExist() then
-        return self:getDCSStaticObject():getID()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getID()
     end
+    return nil
 end
 
 function static:getCargoDisplayName()
-    if self:isExist() then
-        return self:getDCSStaticObject():getCargoDisplayName()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getCargoDisplayName()
     end
+    return nil
 end
 
 function static:getCargoWeight()
-    if self:isExist() then
-        return self:getDCSStaticObject():getCargoWeight()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getCargoWeight()
     end
+    return nil
 end
 
 function static:getDrawArgumentValue()
-    if self:isExist() then
-        return self:getDCSStaticObject():getDrawArgumentValue()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getDrawArgumentValue()
     end
+    return nil
 end
 
 function static:isExist()
-    if self:getDCSStaticObject() then
-        return self:getDCSStaticObject():isExist()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:isExist()
     end
     return false
 end
 
 function static:destroy()
-    if self:isExist() then
-        self:getDCSStaticObject():destroy()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:destroy()
     end
     return self
 end
 
 function static:getCategory()
-    if self:isExist() then
-        return self:getDesc().category
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getDesc().category
     end
+    return nil
 end
 
 function static:getTypeName()
-    if self:isExist() then
-        return self:getDCSStaticObject():getTypeName()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getTypeName()
     end
+    return nil
 end
 
 function static:getDesc()
-    if self:isExist() then
-        return self:getDCSStaticObject():getDesc()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getDesc()
     end
+    return nil
 end
 
 function static:hasAttribute()
-    if self:isExist() then
-        return self:getDCSStaticObject():hasAttribute()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:hasAttribute()
     end
+    return nil
 end
 
 function static:getName()
@@ -3473,33 +3578,42 @@ function static:getName()
 end
 
 function static:getPoitn()
-    if self:isExist() then
-        return self:getDCSStaticObject():getPoint()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getPoint()
     end
+    return nil
 end
 
 function static:getPosition()
-    if self:isExist() then
-        return self:getDCSStaticObject():getPosition()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getPosition()
     end
+    return nil
 end
 
 function static:getCoalition()
     if self:isExist() then
         return self.staticTemplate.coalition
     end
+    return nil
 end
 
 function static:getCountry()
-    if self:isExist() then
-        return self:getDCSStaticObject():getCountry()
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getCountry()
     end
+    return nil
 end
 
 function static:getDescByName(staticTypeName)
-    if self:isExist() then
-        return self:getDCSStaticObject():getDescByName(staticTypeName)
+    local dcsStaticObject = self:getDCSStaticObject()
+    if dcsStaticObject then
+        return dcsStaticObject:getDescByName(staticTypeName)
     end
+    return nil
 end
 
 --[[
@@ -3600,6 +3714,7 @@ function group:getUnit(unitVar)
         local unitName = self.groupTemplate.units[unitVar].name
         return unit:getByName(unitName)
     end
+    return nil
 end
 
 --[[ return an array of #unit objects within the group object
@@ -3627,8 +3742,9 @@ end
 - @return #number avgVelocityKMH
 ]]
 function group:getAvgVelocityKMH()
-    if self:isAlive() then
-        local groupSize = self:getDCSGroup():getSize()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        local groupSize = self:getSize()
         local avgVelocityKMH = 0
         for _, unit in pairs(self:getDCSGroup():getUnits()) do
             local unitVelocityKMH = util:getVelocityKMH(unit)
@@ -3636,6 +3752,7 @@ function group:getAvgVelocityKMH()
         end
         return avgVelocityKMH / groupSize
     end
+    return nil
 end
 
 --[[ return the average vec3 point from the group object
@@ -3643,10 +3760,11 @@ end
 - @return #table avgVec3 [table of x, y, and z coordinates from the average point of the group]
 ]]
 function group:getPoint()
-    if self:isAlive() then
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
         local avgX, avgY, avgZ, count = 0, 0, 0, 0
-        local dcsUnits = self:getDCSUnits()
-        for _, unit in pairs(dcsUnits) do
+        local units = self:getUnits()
+        for _, unit in pairs(units) do
             local unitVec3 = unit:getPoint()
             avgX = avgX + unitVec3.x
             avgY = avgY + unitVec3.y
@@ -3670,13 +3788,14 @@ end
 - @rreturn #number avgFuel
 ]]
 function group:getAvgFuel()
-    if self:isAlive() then
-        local dcsUnits = self:getDCSGroup():getUnits()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
         local totalFuel = 0
-        for _, unit in pairs(dcsUnits) do
+        local units = self:getUnits()
+        for _, unit in pairs(units) do
             totalFuel = totalFuel + unit:getFuel()
         end
-        local avgFuel = totalFuel / #dcsUnits
+        local avgFuel = totalFuel / #units
         return avgFuel
     end
     return nil
@@ -3687,13 +3806,14 @@ end
 - @return #number health [return example: ]
 ]]
 function group:getAvgHealth()
-    if self:isAlive() then
-        local dcsUnits = self:getDCSGroup():getUnits()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        local units = self:getUnits()
         local totalHealth = 0
-        for _, unit in pairs(dcsUnits) do
+        for _, unit in pairs(units) do
             totalHealth = totalHealth + unit:getLife()/unit:getLife0()
         end
-        local avgHealth = totalHealth / #dcsUnits * 100
+        local avgHealth = totalHealth / #units * 100
         return avgHealth
     end
     return nil
@@ -3705,9 +3825,11 @@ end
 - @return #number avgAmmo
 ]]
 function group:getAvgAmmo()
-    if self:isAlive() then
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
         local ammoCount = 0
-        for _, unit in pairs(self:getDCSGroup():getUnits()) do
+        local units = self:getUnits()
+        for _, unit in pairs(units) do
             local ammo = unit:getAmmo()
             for _, ammoData in pairs(ammo) do
                 if ammoData.desc.category ~= 0 then -- missile, rocket, bomb
@@ -3728,7 +3850,8 @@ end
 - @return #table detectedTargets
 ]]
 function group:getDetectedTargets(detection, categories, range)
-    if self:isAlive() then
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
         local dcsController = self:getController()
         local targetsInRange = {}
         local detectedTargets = dcsController:getDetectedTargets(detection[1] or nil, detection[2] or nil, detection[3] or nil)
@@ -3760,12 +3883,13 @@ end
 - @return #boolean groupAlive [true if any unit is determined to be alive]
 ]]
 function group:isAlive()
-    if self:getDCSGroup() then
-        local dcsUnits = self:getDCSGroup():getUnits()
-        for _, unit in pairs(dcsUnits) do
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        local units = self:getUnits()
+        for _, unit in pairs(units) do
             if unit:isActive() then
                 if unit:isExist() then
-                    if unit:getLife() ~= 0 then
+                    if unit:getLife() >= 1 then
                         return true
                     end
                 end
@@ -3780,40 +3904,48 @@ end
 - @return #boolean groupInAir [false if any unit is determined to be not in air]
 ]]
 function group:inAir()
-    if self:isAlive() then
-        local groupInAir = true
-        local dcsUnits = self:getDCSGroup():getUnits()
-        for _, unit in pairs(dcsUnits) do
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        local units = self:getUnits()
+        for _, unit in pairs(units) do
             if unit:inAir() == false then
-                groupInAir = false
-                break
+                return true
             end
         end
-        return groupInAir
     end
-    return nil
+    return false
 end
 
-function group:inZone(zoneName)
+function group:inZone(zoneName, allOfGroupInZone)
     if zonesByName[zoneName] then
-        if self:isAlive() then
+        local dcsGroup = self:getDCSGroup()
+        if dcsGroup then
             local units = self:getDCSUnits()
             local triggerZone = util:deepCopy(zonesByName[zoneName])
             local zonePoint = {["x"] = triggerZone.x, ["z"] = triggerZone.y}
             local zoneRadius = triggerZone.radius
-            local inZone = true
+            local inZoneCount = 0
             for _, unit in pairs(units) do
                 local unitPoint = unit:getPoint()
                 if ((unitPoint.x - zonePoint.x)^2 + (unitPoint.z - zonePoint.z)^2)^0.5 >= zoneRadius then
-                    inZone = false
-                    break
+                    inZoneCount = inZoneCount + 1
                 end
             end
-            return inZone
+
+            if allOfGroupInZone then
+                if inZoneCount == self:getSize() then
+                    return true
+                end
+            else
+                if inZoneCount > 0 then
+                    return true
+                end
+            end
         end
     else
         util:logError(self.debug, "%s is not a trigger zone defined in the mission editor", zoneName)
     end
+    return false
 end
 
 -- ** DCS Class #Group Wrapper Methods ** --
@@ -3823,8 +3955,10 @@ end
 - @return DCS#Group
 ]]
 function group:getDCSGroup()
-    local _group = Group.getByName(self.groupName)
-    if _group then return _group end
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup
+    end
     return nil
 end
 
@@ -3834,7 +3968,11 @@ end
 - @return #enum groupCategory
 ]]
 function group:getCategory()
-    return self:getDesc().category
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getDesc().category
+    end
+    return nil
 end
 
 --[[ return the coalition from the group object
@@ -3843,8 +3981,9 @@ end
 - @return #number groupCoalition
 ]]
 function group:getCoalition()
-    if self:getDCSGroup() then
-        return self:getDCSGroup():getCoalition()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getCoalition()
     end
     return self
 end
@@ -3862,9 +4001,9 @@ end
 - @return #number groupId
 ]]
 function group:getID()
-    if self:getDCSGroup() then
-        local groupId = self:getDCSGroup():getID()
-        return groupId
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getID()
     end
     return nil
 end
@@ -3875,9 +4014,9 @@ end
 - @return DCS#Unit dcsUnit
 ]]
 function group:getDCSUnit(unitId)
-    if self:getDCSGroup() then
-        local dcsUnit = self:getDCSGroup():getUnit(unitId)
-        return dcsUnit
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getUnit(unitId)
     end
     return nil
 end
@@ -3887,9 +4026,9 @@ end
 - #return DCS#Units units
 ]]
 function group:getDCSUnits()
-    if self:getDCSGroup() then
-        local dcsUnits = self:getDCSGroup():getUnits()
-        return dcsUnits
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getUnits()
     end
     return nil
 end
@@ -3899,9 +4038,9 @@ end
 - @return #number groupSize
 ]]
 function group:getSize()
-    if self:getDCSGroup() then
-        local groupSize = self:getDCSGroup():getSize()
-        return groupSize
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getSize()
     end
     return 0
 end
@@ -3912,9 +4051,9 @@ end
 - @return #number initGroupSize
 ]]
 function group:getInitialSize()
-    if self:getDCSGroup() then
-        local initGroupSize = self:getDCSGroup():getInitialSize()
-        return initGroupSize
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getInitialSize()
     end
     return nil
 end
@@ -3924,9 +4063,9 @@ end
 - @return DCS#GroupController
 ]]
 function group:getController()
-    if self:getDCSGroup() then
-        local groupController = self:getDCSGroup():getController()
-        return groupController
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getController()
     end
     return nil
 end
@@ -3936,9 +4075,9 @@ end
 - @return #boolean groupExist
 ]]
 function group:isExist()
-    if self:getDCSGroup() then
-        local groupExist = self:getDCSGroup():isExist()
-        return groupExist
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:isExist()
     end
     return false
 end
@@ -3948,10 +4087,9 @@ end
 - @return #group self
 ]]
 function group:activate()
-    if self:getDCSGroup() then
-        if not self:getDCSGroup():isActive() then
-            self:getDCSGroup():activate()
-        end
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:isActive()
     end
     return self
 end
@@ -3961,8 +4099,9 @@ end
 - @return #group self
 ]]
 function group:destroy()
-    if self:getDCSGroup() then
-        self:getDCSGroup():destroy()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:destroy()
     end
     return self
 end
@@ -3973,8 +4112,9 @@ end
 - @return #group self
 ]]
 function group:enableEmission(emission)
-    if self:getDCSGroup() then
-        self:getDCSGroup():enableEmission(emission)
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        dcsGroup:enableEmission(emission)
         return self
     end
 end
