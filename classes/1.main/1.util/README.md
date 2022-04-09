@@ -31,9 +31,9 @@ log an info message if a player occupies a unit
 local debug = true
 local playerName = unit:getPlayerName()
 if playerName then
-    util:logInfo(doStuffDebug, "%s is the player name", playerName)
+    util:logInfo(debug, "%s is the player name", playerName)
 else
-    util:logInfo(doStuffDebug, "there is no player occupying the unit")
+    util:logInfo(debug, "there is no player occupying the unit")
 end
 ```
 
