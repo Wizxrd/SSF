@@ -26,7 +26,7 @@ expert to take advantage of the classes within the framework.
 -- build information
 local major   = 0
 local minor   = 2
-local patch   = 0
+local patch   = 1
 local debugger = true
 
 --
@@ -591,7 +591,6 @@ useful utility functions that help with logging, messages, conversions, table ma
 - save tables to file
 - load tables from file
 - scheduled functions
-- getting unit velocitys in mps/mph/kmh
 
 @created Jan 30, 2022
 
@@ -601,6 +600,7 @@ util = {}
 util.__index = setmetatable({}, util)
 
 --[[ send a message to dcs.log under the prefix of "INFO SSF"
+- @param #boolean debug [if true the logging will execute]
 - @param #string msg [the message to send]
 - @param #args [any arguments to be formatted into the message]
 - @return none
@@ -610,6 +610,7 @@ function util:logInfo(debug, msg, ...)
 end
 
 --[[ send a message to dcs.log under the prefix of "WARNING SSF"
+- @param #boolean debug [if true the logging will execute]
 - @param #string msg [the message to send]
 - @param #args [any arguments to be formatted into the message]
 - @return none
@@ -619,6 +620,7 @@ function util:logWarning(debug, msg, ...)
 end
 
 --[[ send a message to dcs.log under the prefix of "ERROR SSF"
+- @param #boolean debug [if true the logging will execute]
 - @param #string msg [the message to send]
 - @param #args [any arguments to be formatted into the message]
 - @return none
@@ -628,6 +630,7 @@ function util:logError(debug, msg, ...)
 end
 
 --[[ send a message to all players
+- @param #boolean clearview [if true new messages will over write previously displayed ones]
 - @param #number time [the amount of time to display the message]
 - @param #string msg [the message to send]
 - @param #args [any arguments to be formatted into the message]
@@ -638,6 +641,7 @@ function util:messageToAll(clearview, time, msg, ...)
 end
 
 --[[ send a message to players of a specific coalition
+- @param #boolean clearview [if true new messages will over write previously displayed ones]
 - @param #number time [the amount of time to display the message]
 - @param #enum coalition [the coalition the message will be displayed for, eg: coalition.side.RED]
 - @param #string msg [the message to send]
@@ -649,6 +653,7 @@ function util:messageToCoalition(clearview, time, coalition, msg, ...)
 end
 
 --[[ send a message to players of a specific group
+- @param #boolean clearview [if true new messages will over write previously displayed ones]
 - @param #number time [the amount of time to display the message]
 - @param #number groupId [the groupId the message will be displayed for]
 - @param #string msg [the message to send]
@@ -2118,9 +2123,9 @@ end
 function birth:_updateActiveGroups()
     self.activeGroups = {}
     for _, groupName in pairs(self.bornGroups) do
-        local _group = group:getByName(groupName)
-        if _group then
-            if _group:isAlive() then
+        local group = group:getByName(groupName)
+        if group then
+            if group:isAlive() then
                 self.activeGroups[#self.activeGroups+1] = groupName
             end
         end
@@ -2305,6 +2310,9 @@ function search:searchForGroupsOnce()
                 groups[#groups+1] = group:getByName(groupName)
             end
         end
+
+
+
     end
     return groups
 end
@@ -2802,7 +2810,7 @@ function cap:onafterTaskPatrol()
             }
         }
     end
-    taskMission.params.route.points[self.patrolShape.points].task.params.tasks = {
+    taskMission.params.route.points[1].task.params.tasks = {
         [1] = {
             ["number"] = 1,
             ["auto"] = false,
@@ -2813,7 +2821,7 @@ function cap:onafterTaskPatrol()
                     ["id"] = "SwitchWaypoint",
                     ["params"] = {
                         ["goToWaypointIndex"] = 1,
-                        ["fromWaypointIndex"] = self.patrolShape.points
+                        ["fromWaypointIndex"] = #self.patrolShape.points
                     }
                 }
             }
@@ -2952,7 +2960,7 @@ wrapper functions for DCS Class Unit with additional methods available.
 
 unit = {}
 
---[[ get a new instance of a unit object by name
+--[[ create a new instance of a unit object
 - @param #unit self
 - @param #string unitName
 - @return #unit self
@@ -2972,9 +2980,9 @@ end
 -- ** ssf class #unit methods ** --
 --
 --
---[[ handle a specific event for the unit object
+--[[ handle a specific event for the #unit object
 - @param #unit self
-- @param #enum event [the event that will be triggered for the unit]
+- @param #enum event [the event that will be triggered for the #unit object]
 - @return #unit self
 ]]
 function unit:handleEvent(event)
@@ -2982,7 +2990,7 @@ function unit:handleEvent(event)
     return self
 end
 
---[[ return the #group object that the unit is in
+--[[ return the #group object that the #unit object is in
 - @param #unit self
 - @return #group self
 ]]
@@ -2995,21 +3003,22 @@ function unit:getGroup()
     return nil
 end
 
---[[ return a table needed for a units payload
+--[[ return the #unit object payload table
 - note: this function does not obtain a *current* payload, only what is set via the mission editor
 - @param #unit self
-- @param #string unitName [the unit name to return the payload from]
+- @param #string unitName (optional) [the unit name to return the payload from, if nil return for self]
 - @return #table payload
 ]]
 function unit:getPayload(unitName)
-    if payloadsByUnitName[unitName] then
+    local name = unitName or self.unitName
+    if payloadsByUnitName[name] then
         local payload = util:deepCopy(payloadsByUnitName[unitName])
         return payload
     end
     return nil
 end
 
---[[ return the current livery namne for the unit object
+--[[ return the current livery namne for the #unit object
 - @param #unit self
 - @return #string liveryName
 ]]
@@ -3018,9 +3027,9 @@ function unit:getLivery()
     return liveryName
 end
 
---[[ return the dcs class #Unit from the unit object
+--[[ return the dcs class #Unit from the #unit object
 - @param #unit self
-- @return DCS Class #Unit
+- @return dcs class #Unit
 ]]
 function unit:getDCSUnit()
     local dcsUnit = Unit.getByName(self.unitName)
@@ -3030,7 +3039,7 @@ function unit:getDCSUnit()
     return nil
 end
 
---[[ return the country of the unit object
+--[[ return the country of the #unit object
 - @param #unit self
 - @return #number countryId
 ]]
@@ -3039,9 +3048,9 @@ function unit:getCountry()
     return countryId
 end
 
---[[ return a boolean if the unit is alive or not
+--[[ return a boolean if the #unit object is alive or not
 - @param #unit self
-- @return #boolean alive [true if the unit is alive]
+- @return #boolean alive [true if the #unit is alive]
 ]]
 function unit:isAlive()
     local dcsUnit = self:getDCSUnit()
@@ -3057,23 +3066,23 @@ function unit:isAlive()
     return false
 end
 
--- ** DCS Class #Unit Wrapper Methods ** --
+-- ** dcs class #Unit Wrapper Methods ** --
 
---[[ return a boolean if the unit is currently activated or not
+--[[ return a boolean if the #unit is currently activated or not
 - @param #unit self
-- @return #boolean [true if the unit is now activated where it was previously late activated]
+- @return #boolean [true if the #unit is now activated where it was previously late activated]
 ]]
 function unit:isActive()
     local dcsUnit = self:getDCSUnit()
     if dcsUnit then
-        return unit:isActive()
+        return dcsUnit:isActive()
     end
     return nil
 end
 
---[[ return the players name in control of the unit
+--[[ return the players name in control of the #unit
 - @param #unit self
-- @return #string playerName [returns the name of a player if they are occupied in the unit
+- @return #string playerName [returns the name of a player if they are occupied in the #unit
 ]]
 function unit:getPlayerName()
     local dcsUnit = self:getDCSUnit()
@@ -3086,45 +3095,45 @@ function unit:getPlayerName()
     return nil
 end
 
---[[return the unique object identifier given to the unit object
+--[[ return the unique object identifier given to the #unit object
 - @param #unit self
 - @return #number
 ]]
 function unit:getID()
     local dcsUnit = self:getDCSUnit()
     if dcsUnit then
-        return unit:getID()
+        return dcsUnit:getID()
     end
     return nil
 end
 
---[[ return the default index of the unit object within the group
+--[[ return the default index of the #unit object within the group
 - @param #unit self
 - @return #number
 ]]
 function unit:getNumber()
     local dcsUnit = self:getDCSUnit()
     if dcsUnit then
-        return unit:getNumber()
+        return dcsUnit:getNumber()
     end
     return nil
 end
 
---[[ return the dcs class #Controller from the unit object
+--[[ return the dcs class #Controller from the #unit object
 - @param #unit self
-- @return DCS Class #Controller
+- @return dcs class #Controller
 ]]
 function unit:getController()
     local dcsUnit = self:getDCSUnit()
     if dcsUnit then
-        return unit:getController()
+        return dcsUnit:getController()
     end
     return nil
 end
 
---[[ return the dcs class #Group from the unit object
+--[[ return the dcs class #Group from the #unit object
 - @param #unit self
-- @return DCS Class #Group
+- @return dcs class #Group
 ]]
 function unit:getDCSGroup()
     local dcsUnit = self:getDCSUnit()
@@ -3134,19 +3143,19 @@ function unit:getDCSGroup()
     return nil
 end
 
---[[ return the callsign of the unit object
+--[[ return the callsign of the #unit object
 - @param #unit self
 - @return #string
 ]]
 function unit:getCallsign()
     local dcsUnit = self:getDCSUnit()
     if dcsUnit then
-        return unit:getCallsign()
+        return dcsUnit:getCallsign()
     end
     return nil
 end
 
---[[ return the current life of the unit object
+--[[ return the current life of the #unit object
 -- less than 1 is considered dead
 - @param #unit
 - @return #number
@@ -3207,7 +3216,7 @@ function unit:getSensors()
     return nil
 end
 
---[[ return a boolean if the unit has sensors
+--[[ return a boolean if the #unit has sensors
 - @param #unit self
 - @return #boolean [true if unit has sensors]
 ]]
@@ -3219,9 +3228,18 @@ function unit:hasSensors()
     return nil
 end
 
---[[ return a boolean if the units radar is working as well as the actively tracked target #Object
+--[[ return a boolean if the #units radar is working as well as the actively tracked target dcs class #Object
 - @param #unit self
 - @return #boolean, dcs class #Object
+example:
+local ewrUnit = unit:getByName("EWR South")
+local radarOnline, trackedUnit = ewrUnit:getRadar()
+if radarOnline then
+    local trackedUnitVec3 = trackedUnit:getPoint()
+    if util:getDistance(playerVec3, trackedUnitVec3) <= 1500 then
+        -- player is within 1500m, engage
+    end
+end
 ]]
 function unit:getRadar()
     local dcsUnit = self:getDCSUnit()
@@ -3231,8 +3249,8 @@ function unit:getRadar()
     return nil
 end
 
---[[ return the current value for an animation argument for the external model of the unit
-- @param #unit
+--[[ return the current value for an animation argument for the external model of the #unit object
+- @param #unit self
 - @return #number [-1 to 1+]
 ]]
 function unit:getDrawArgumentValue()
@@ -3243,7 +3261,7 @@ function unit:getDrawArgumentValue()
     return nil
 end
 
---[[ returns an array of friendly cargo objects sorted by distance from a helicopter unit
+--[[ returns an array of friendly cargo objects sorted by distance from the #unit object
 - only works for helicopters
 - @param #unit self
 - @return #array dcs class #Objects
@@ -3256,7 +3274,7 @@ function unit:getNearestCargos()
     return nil
 end
 
---[[ enable the radar emission for the unit
+--[[ enable the radar emission for the #unit
 - @param #unit self
 - @param #boolean [true or false to toggle the emission of a radar]
 - @return #unit self
@@ -3269,7 +3287,7 @@ function unit:enableEmission(bool)
     return nil
 end
 
---[[ return the amount of infantry that can embark onto an aircraft
+--[[ return the amount of infantry that can embark onto the #unit object
 - only for airplanes and helopters
 - @param #unit self
 - @return #number
@@ -3282,7 +3300,7 @@ function unit:getDescentCapacity()
     return nil
 end
 
---[[ return a boolean if the unit currently exists or not
+--[[ return a boolean if the #unit object currently exists or not
 - @param #unit self
 - @return #boolean [true if currently exists]
 ]]
@@ -3294,19 +3312,19 @@ function unit:isExist()
     return nil
 end
 
---[[ destroy the unit object with no explosion
+--[[ destroy the #unit object with no explosion
 - @param #unit self
 - @return #unit self
 ]]
 function unit:destroy()
     local dcsUnit = self:getDCSUnit()
     if dcsUnit then
-        unit:destroy()
+        dcsUnit:destroy()
     end
     return self
 end
 
---[[ return the category of the unit object
+--[[ return the category of the #unit object
 - @param #unit self
 - @return #enum [eg; 1 for airplane]
 ]]
@@ -3318,7 +3336,7 @@ function unit:getCategory()
     return nil
 end
 
---[[ return the coalition of the unit object
+--[[ return the coalition of the #unit object
 - @param #unit self
 - @return #enum [eg; 1 for red, 2 for blue, 0 for neutral]
 ]]
@@ -3330,9 +3348,9 @@ function unit:getCoalition()
     return nil
 end
 
---[[ return the type name from the unit object
+--[[ return the type name from the #unit object
 - @param #unit self
-- @return #string [the unit type name. eg; "Mi-8"]
+- @return #string [the #unit type name. eg; "Mi-8"]
 ]]
 function unit:getTypeName()
     local dcsUnit = self:getDCSUnit()
@@ -3342,7 +3360,7 @@ function unit:getTypeName()
     return nil
 end
 
---[[ return the description table from the unit object
+--[[ return the description table from the #unit object
 - @param #unit self
 - @return #array
 ]]
@@ -3354,7 +3372,7 @@ function unit:getDesc()
     return nil
 end
 
---[[ return a boolean if the unit object has a specific attribute
+--[[ return a boolean if the #unit object has a specific attribute
 - @param #unit self
 - @param #string attribute [eg; "Planes"]
 ]]
@@ -3363,9 +3381,10 @@ function unit:hasAttribute(attribute)
     if dcsUnit then
         return dcsUnit:hasAttribute(attribute)
     end
+    return nil
 end
 
---[[ return the name of the unit object
+--[[ return the name of the #unit object
 - @param #unit self
 - @return #string
 ]]
@@ -3377,7 +3396,7 @@ function unit:getName()
     return nil
 end
 
---[[ return the current location by vec3 from the unit object
+--[[ return the current vec3 of the #unit object
 - @param #unit self
 - @return #table
 ]]
@@ -3389,7 +3408,7 @@ function unit:getPoint()
     return nil
 end
 
---[[ return the current orientation vectors from the unit object
+--[[ return the current orientation vectors from the #unit object
 - returns positional orientation in 3D space
 - @param #unit self
 - @return #table
@@ -3399,9 +3418,10 @@ function unit:getPosition()
     if dcsUnit then
         return dcsUnit:getPosition()
     end
+    return nil
 end
 
---[[ return the vec3 velocity vectors from the unit object
+--[[ return the vec3 velocity vectors from the #unit object
 - @param #unit self
 - @return #table
 ]]
@@ -3413,15 +3433,15 @@ function unit:getVelocity()
     return nil
 end
 
---[[ return a unit objects description table by type name
+--[[ return a #unit objects description table by type name
 - @param #string unitTypeName
 - @return #table
 ]]
-function unit:getDescByName(unitTypeName)
+function unit.getDescByName(unitTypeName)
     return Unit.getDescByName(unitTypeName) or nil
 end
 
---[[ return a boolean if the unit object is in air or not
+--[[ return a boolean if the #unit object is in air or not
 - @param #unit self
 - @return #boolean
 ]]
@@ -3431,6 +3451,332 @@ function unit:inAir()
         return dcsUnit:inAir()
     end
     return nil
+end
+
+--[[
+
+@class #airbase
+
+@authors Wizard
+
+@description
+wrapper functions for DCS Class Airbase with additional methods available.
+
+@features
+
+@todo
+
+@created Apr 4, 2022
+
+]]
+
+airbase = {}
+
+--[[ create a new instance of a airbase object
+- @param #airbase self
+- @param #string airbaseName [eg; "Sochi-Adler"]
+- @return #airbase self
+]]
+function airbase:getByName(airbaseName)
+    if airbasesByName[airbaseName] then
+        local self = util:inherit(self, handler:new())
+        self.airbaseName = airbaseName
+        self.airbaseTemplate = util:deepCopy(airbasesByName[airbaseName])
+        return self
+    end
+    return nil
+end
+
+-- ** ssf class #airbase methods ** --
+
+--[[ return the #unit object if the airbase is a helipad or ship
+- @param #airbase self
+- @return #unit self
+]]
+function airbase:getUnit()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        local dcsAirbaseUnit = dcsAirbase:getUnit()
+        if dcsAirbaseUnit then
+            local dcsAirbaseUnitName = dcsAirbaseUnit:getName()
+            local airbase_unit = unit:getByName(dcsAirbaseUnitName)
+            if airbase_unit then
+                return airbase_unit
+            end
+        end
+    end
+    return nil
+end
+
+--[[ return the dcs class #Airbase from the #airbase object
+- @param #airbase self
+- @return dcs class #Airbase
+]]
+function airbase:getDCSAirbase()
+    local dcsAirbase = Airbase.getByName(self.airbaseName)
+    if dcsAirbase then
+        return dcsAirbase
+    end
+    return nil
+end
+
+-- ** dcs class #Airbase methods ** --
+
+--[[ return the description table from the #airbase object
+- @param #airbase self
+- @return #array
+]]
+function airbase:getDesc()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getDesc()
+    end
+    return nil
+end
+
+--[[ return the callsign of the #airbase object
+- airbase names are defined in game, while farps and ships can be configured via mission editor
+- @param #airbase self
+- @return #string
+]]
+function airbase:getCallsign()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getCallsign()
+    end
+    return nil
+end
+
+--[[ return the dcs class #Unit from the #airbase object
+- @param #airbase self
+- @return dcs class #Airbase]]
+function airbase:getDCSUnit()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        local dcsAirbaseUnit = dcsAirbase:getUnit()
+        if dcsAirbaseUnit then
+            return dcsAirbaseUnit
+        end
+    end
+    return nil
+end
+
+--[[ return the unique object identifier given to the #airbase object
+- @param #airbase self
+- @return #number
+]]
+function airbase:getID()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getID()
+    end
+    return nil
+end
+
+--[[ return a table of parking data for the #airbase object
+- @param #airbase self
+- @param #boolean [true for only availble parking spots]
+]]
+function airbase:getParking(available)
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getParking(available)
+    end
+    return nil
+end
+
+--[[ return a table with runway information for the #airbase object
+- length, width, course, and name
+- @param #airbase self
+- @return #table
+]]
+function airbase:getRunways()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getRunways()
+    end
+    return nil
+end
+
+--[[ return a vec3 table from the objectType param for the #airbase object
+- only returns the airbase "Tower"
+- @param #airbase self
+- @param #number or #string objectType
+- @return #table
+]]
+function airbase:getTechObjectPos(objectType)
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getRunways()
+    end
+    return nil
+end
+
+--[[ return a boolean if the #airbase objects radio has been silenced
+- @param #airbase self
+- @return #boolean
+]]
+function airbase:getRadioSilentMode()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getRadioSilentMode()
+    end
+    return nil
+end
+
+--[[ set the ATC for the #airbase object to be silent
+- stops atc from transmitting completely
+- @param #airbase self
+- @param #boolean silenced [ if true disabled atc communications]
+- @return #boolean
+]]
+function airbase:setRadioSilentMode(silenced)
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:setRadioSilentMode(silenced)
+    end
+    return nil
+end
+
+--[[ return a boolean if the #airbase object currently exists or not
+- @param #airbase self
+- @return #boolean [true if currently exists]
+]]
+function airbase:isExist()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:isExist()
+    end
+    return nil
+end
+
+--[[ destroy the #airbase object with no explosion
+- @param #airbase self
+- @return #airbase self
+]]
+function airbase:destroy()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        dcsAirbase:destroy()
+    end
+    return self
+end
+
+--[[ return the category of the #airbase object
+- @param #airbase self
+- @return #enum [eg; 1 for airplane]
+]]
+function airbase:getCategory()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getDesc().category
+    end
+    return nil
+end
+
+--[[ return the coalition of the #airbase object
+- @param #airbase self
+- @return #enum [eg; 1 for red, 2 for blue, 0 for neutral]
+]]
+function airbase:getCoalition()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getCoalition()
+    end
+    return nil
+end
+
+--[[ return the type name from the #airbase object
+- @param #airbase self
+- @return #string [the #airbase type name. eg; "FARP"]
+]]
+function airbase:getTypeName()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getTypeName()
+    end
+    return nil
+end
+
+--[[ return the description table from the #airbase object
+- @param #airbase self
+- @return #array
+]]
+function airbase:getDesc()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getDesc()
+    end
+    return nil
+end
+
+--[[ return a boolean if the #airbase object has a specific attribute
+- @param #airbase self
+- @param #string attribute [eg; "Airfields"]
+]]
+function airbase:hasAttribute(attribute)
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:hasAttribute(attribute)
+    end
+    return nil
+end
+
+--[[ return the name of the #airbase object
+- @param #airbase self
+- @return #string
+]]
+function airbase:getName()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getName()
+    end
+    return nil
+end
+
+--[[ return the current vec3 of the #airbase object
+- @param #airbase self
+- @return #table
+]]
+function airbase:getPoint()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getPoint()
+    end
+    return nil
+end
+
+--[[ return the current orientation vectors from the #airbase object
+- returns positional orientation in 3D space
+- @param #airbase self
+- @return #table
+]]
+function airbase:getPosition()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getPosition()
+    end
+    return nil
+end
+
+--[[ return the vec3 velocity vectors from the #airbase object
+- @param #airbase self
+- @return #table
+]]
+function airbase:getVelocity()
+    local dcsAirbase = self:getDCSAirbase()
+    if dcsAirbase then
+        return dcsAirbase:getVelocity()
+    end
+    return nil
+end
+
+--[[ return a #airbase objects description table by type name
+- @param #string airbaseTypeName
+- @return #table
+]]
+function airbase.getDescByName(airbaseTypeName)
+    return Airbase.getDescByName(airbaseTypeName) or nil
 end
 
 --[[
@@ -3455,7 +3801,7 @@ wrapper functions for DCS Class StaticObject with additional methods available.
 
 static = {}
 
---[[ get a new instance of a group object by name
+--[[ create a new instance of a static object
 - @param #group self
 - @param #string groupName
 - @return #group self
@@ -3471,7 +3817,10 @@ function static:getByName(staticName)
 end
 
 -- ** ssf class #static methods** --
-
+--[[ return a boolean if the #static object is alive or not
+- @param #static self
+- @return #boolean [true if alive]
+]]
 function static:isAlive()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3484,6 +3833,10 @@ function static:isAlive()
     return false
 end
 
+--[[ return the dcs class #StaticObject from the #static object
+- @param #static self
+- @return dcs class #StaticObject
+]]
 function static:getDCSStaticObject()
     if StaticObject.getByName(self.staticName) ~= nil then
         return StaticObject.getByName(self.staticName)
@@ -3491,8 +3844,12 @@ function static:getDCSStaticObject()
     return nil
 end
 
--- ** DCS Class #StaticObject Wrapper Methods ** --
+-- ** dcs class #StaticObject Wrapper Methods ** --
 
+--[[ return the unique object identifier given to the #static object
+- @param #static self
+- @return #number
+]]
 function static:getID()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3501,6 +3858,10 @@ function static:getID()
     return nil
 end
 
+--[[ return the #static object cargo mass in kg
+- @param #static self
+- @return #string [eg; "1500 kg"]
+]]
 function static:getCargoDisplayName()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3509,6 +3870,10 @@ function static:getCargoDisplayName()
     return nil
 end
 
+--[[ return the #static object cargo mass in kg
+- @param #static self
+- @return #number [eg; 900]
+]]
 function static:getCargoWeight()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3517,6 +3882,10 @@ function static:getCargoWeight()
     return nil
 end
 
+--[[ return the current value for an animation argument for the external model of the staic object
+- @param #static self
+- @return #number [-1 to 1+]
+]]
 function static:getDrawArgumentValue()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3525,6 +3894,10 @@ function static:getDrawArgumentValue()
     return nil
 end
 
+--[[ return a boolean if the #static object currently exists or not
+- @param #static self
+- @return #boolean [true if currently exists]
+]]
 function static:isExist()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3533,6 +3906,10 @@ function static:isExist()
     return false
 end
 
+--[[ destroy the #static object with no explosion
+- @param #static self
+- @return #static self
+]]
 function static:destroy()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3541,6 +3918,10 @@ function static:destroy()
     return self
 end
 
+--[[ return the category of the #static object
+- @param #static self
+- @return #enum [eg; 1 for unit]
+]]
 function static:getCategory()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3549,6 +3930,10 @@ function static:getCategory()
     return nil
 end
 
+--[[ return the type name from the #static object
+- @param #static self
+- @return #string [the #static type name. eg; "ammo_cargo"]
+]]
 function static:getTypeName()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3557,6 +3942,10 @@ function static:getTypeName()
     return nil
 end
 
+--[[ return the description table from the #static object
+- @param #static self
+- @return #array
+]]
 function static:getDesc()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3565,6 +3954,10 @@ function static:getDesc()
     return nil
 end
 
+--[[ return a boolean if the #static object has a specific attribute
+- @param #static self
+- @param #string attribute [eg; "Fortifications"]
+]]
 function static:hasAttribute()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3573,11 +3966,20 @@ function static:hasAttribute()
     return nil
 end
 
+--[[ return the name of the #static object
+- note this is the unit name
+- @param #static self
+- @return #string
+]]
 function static:getName()
     return self.staticName
 end
 
-function static:getPoitn()
+--[[ return the current vec3 of the #static object
+- @param #static self
+- @return #table
+]]
+function static:getPoint()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
         return dcsStaticObject:getPoint()
@@ -3585,6 +3987,11 @@ function static:getPoitn()
     return nil
 end
 
+--[[ return the current orientation vectors from the #static object
+- returns positional orientation in 3D space
+- @param #static self
+- @return #table
+]]
 function static:getPosition()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3593,6 +4000,10 @@ function static:getPosition()
     return nil
 end
 
+--[[ return the coalition of the #static object
+- @param #static self
+- @return #enum [eg; 1 for red, 2 for blue, 0 for neutral]
+]]
 function static:getCoalition()
     if self:isExist() then
         return self.staticTemplate.coalition
@@ -3600,6 +4011,10 @@ function static:getCoalition()
     return nil
 end
 
+--[[ return the country of the #static object
+- @param #static self
+- @return #number countryId
+]]
 function static:getCountry()
     local dcsStaticObject = self:getDCSStaticObject()
     if dcsStaticObject then
@@ -3608,41 +4023,12 @@ function static:getCountry()
     return nil
 end
 
-function static:getDescByName(staticTypeName)
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getDescByName(staticTypeName)
-    end
-    return nil
-end
-
---[[
-
-@class #airbase
-
-@authors Wizard
-
-@description
-wrapper functions for DCS Class Airbase with additional methods available.
-
-@features
-
-@todo
-
-@created Apr 4, 2022
-
+--[[ return a #static objects description table by type name
+- @param #string staticTypeName
+- @return #table
 ]]
-
-airbase = {}
-
-function airbase:getByName(airbaseName)
-    if airbasesByName[airbaseName] then
-        local self = util:inherit(self, handler:new())
-        self.airbaseName = airbaseName
-        self.airbaseTemplate = util:deepCopy(airbasesByName[airbaseName])
-        return self
-    end
-    return nil
+function static.getDescByName(staticTypeName)
+    return StaticObject.getDescByName(staticTypeName) or nil
 end
 
 --[[
@@ -3671,7 +4057,7 @@ wrapper functions for DCS Class Group with additional methods available.
 group = {}
 group.debug = true
 
---[[ get a new instance of a group object by name
+--[[ create a new instance of a group object
 - returns any object that has been placed in the mission or dynamically born
 - @param #group self
 - @param #string groupName
@@ -3687,11 +4073,7 @@ function group:getByName(groupName)
     return nil
 end
 
---
---
 -- ** ssf class #group methods ** --
---
---
 
 --[[ handle a specfic event for the units within the group
 - @param #group self
@@ -3704,7 +4086,7 @@ end
 
 --[[ return a #unit object within the group object by its current index or name
 - @param #group self
-- @poram #variable unitVar [this can be the current index (id) of the unit or its name]
+- @poram #variable unitVar [this can be the current index (id) of the #unit or its name]
 - @return #unit self
 ]]
 function group:getUnit(unitVar)
@@ -3744,13 +4126,13 @@ end
 function group:getAvgVelocityKMH()
     local dcsGroup = self:getDCSGroup()
     if dcsGroup then
-        local groupSize = self:getSize()
         local avgVelocityKMH = 0
-        for _, unit in pairs(self:getDCSGroup():getUnits()) do
+        local units = self:getUnits()
+        for _, unit in pairs(units) do
             local unitVelocityKMH = util:getVelocityKMH(unit)
             avgVelocityKMH = avgVelocityKMH + unitVelocityKMH
         end
-        return avgVelocityKMH / groupSize
+        return avgVelocityKMH / #units
     end
     return nil
 end
@@ -3880,19 +4262,30 @@ end
 
 --[[ return a boolean if the group object is alive
 - @param #group self
-- @return #boolean groupAlive [true if any unit is determined to be alive]
+- @return #boolean [true if at least one unit is still alive]
 ]]
-function group:isAlive()
+function group:isAlive(allOfGroupAlive)
     local dcsGroup = self:getDCSGroup()
     if dcsGroup then
+        local templateSize = #self.groupTemplate.units
+        local aliveUnits = 0
         local units = self:getUnits()
         for _, unit in pairs(units) do
             if unit:isActive() then
                 if unit:isExist() then
                     if unit:getLife() >= 1 then
-                        return true
+                        aliveUnits = aliveUnits + 1
                     end
                 end
+            end
+        end
+        if allOfGroupAlive then
+            if templateSize == aliveUnits then
+                return true
+            end
+        else
+            if aliveUnits > 0 then
+                return true
             end
         end
     end
@@ -3901,14 +4294,24 @@ end
 
 --[[ return a boolean if the group object is in air
 - @param #group self
-- @return #boolean groupInAir [false if any unit is determined to be not in air]
+- @return #boolean groupInAir [true if at least one unit is in air]
 ]]
-function group:inAir()
+function group:inAir(allOfGroupInAir)
     local dcsGroup = self:getDCSGroup()
     if dcsGroup then
+        local inAirUnits = 0
         local units = self:getUnits()
         for _, unit in pairs(units) do
-            if unit:inAir() == false then
+            if unit:inAir() then
+                inAirUnits = inAirUnits + 1
+            end
+        end
+        if allOfGroupInAir then
+            if inAirUnits == #units then
+                return true
+            end
+        else
+            if inAirUnits > 0 then
                 return true
             end
         end
@@ -3933,7 +4336,7 @@ function group:inZone(zoneName, allOfGroupInZone)
             end
 
             if allOfGroupInZone then
-                if inZoneCount == self:getSize() then
+                if inZoneCount == #units then
                     return true
                 end
             else
@@ -3948,7 +4351,7 @@ function group:inZone(zoneName, allOfGroupInZone)
     return false
 end
 
--- ** DCS Class #Group Wrapper Methods ** --
+-- ** dcs class #Group Wrapper Methods ** --
 
 --[[ return the DCS Class Group from the group object
 - @param #group self
@@ -3996,7 +4399,7 @@ function group:getName()
     return self.groupTemplate.name
 end
 
---[[ return the DCS #Group ID from the group object
+--[[ return the unique object identifier given to the group object
 - @param #group self
 - @return #number groupId
 ]]
@@ -4008,7 +4411,7 @@ function group:getID()
     return nil
 end
 
---[[ get a DCS Class #Unit from the group object
+--[[ get a dcs class #Unit from the group object
 - @param #group self
 - @param #number unitId [the unitId within the group to obtain]
 - @return DCS#Unit dcsUnit
