@@ -26,7 +26,7 @@ expert to take advantage of the classes within the framework.
 -- build information
 local major   = 0
 local minor   = 2
-local patch   = 1
+local patch   = 2
 local debugger = true
 
 --
@@ -3066,6 +3066,27 @@ function unit:isAlive()
     return false
 end
 
+--[[ return a boolean the #group object is in a zone
+- @param #group self
+- @param #string zoneName [the name of the zone to check if the #group object is inside]
+- @param #boolean allOfGroupInZone [if true, the entire group must be in the zone to return true]
+- @return #boolean
+]]
+function unit:inZone(zoneName)
+    if zonesByName[zoneName] then
+        local triggerZone = util:deepCopy(zonesByName[zoneName])
+        local zonePoint = {["x"] = triggerZone.x, ["z"] = triggerZone.y}
+        local zoneRadius = triggerZone.radius
+        local unitPoint = self:getPoint()
+        if ((unitPoint.x - zonePoint.x)^2 + (unitPoint.z - zonePoint.z)^2)^0.5 >= zoneRadius then
+            return true
+        end
+    else
+        util:logError(self.debug, "%s is not a trigger zone defined in the mission editor", zoneName)
+    end
+    return false
+end
+
 -- ** dcs class #Unit Wrapper Methods ** --
 
 --[[ return a boolean if the #unit is currently activated or not
@@ -4084,7 +4105,7 @@ function group:handleEvent(event)
     return self
 end
 
---[[ return a #unit object within the group object by its current index or name
+--[[ return a #unit object within the #group object by its current index or name
 - @param #group self
 - @poram #variable unitVar [this can be the current index (id) of the #unit or its name]
 - @return #unit self
@@ -4099,7 +4120,7 @@ function group:getUnit(unitVar)
     return nil
 end
 
---[[ return an array of #unit objects within the group object
+--[[ return an array of #unit objects within the #group object
 - @param #group self
 - @return #array #units [array of unit objects]
 ]]
@@ -4111,7 +4132,7 @@ function group:getUnits()
     return units
 end
 
---[[ return a deep copy of the group object template
+--[[ return a deep copy of the #group object template
 - @param #group self
 - @return #table groupTemplate
 ]]
@@ -4119,7 +4140,7 @@ function group:getTemplate()
     return util:deepCopy(self.groupTemplate)
 end
 
---[[ return the average speed of the group object in kilometers per hour
+--[[ return the average speed of the #group object in kilometers per hour
 - @param #group self
 - @return #number avgVelocityKMH
 ]]
@@ -4137,7 +4158,7 @@ function group:getAvgVelocityKMH()
     return nil
 end
 
---[[ return the average vec3 point from the group object
+--[[ return the average vec3 point from the #group object
 - @param #group self
 - @return #table avgVec3 [table of x, y, and z coordinates from the average point of the group]
 ]]
@@ -4165,7 +4186,7 @@ function group:getPoint()
     return nil
 end
 
---[[ return the average amount of fuel remaining for the group object
+--[[ return the average amount of fuel remaining for the #group object
 - @param #group self
 - @rreturn #number avgFuel
 ]]
@@ -4183,7 +4204,7 @@ function group:getAvgFuel()
     return nil
 end
 
---[[ return the average percentage of health for the group object
+--[[ return the average percentage of health for the #group object
 - @param #group self
 - @return #number health [return example: ]
 ]]
@@ -4224,7 +4245,7 @@ function group:getAvgAmmo()
     return nil
 end
 
---[[ get targets detected by the group object
+--[[ get targets detected by the #group object
 - @param #group self
 - @param #table targets [array of detectionTypes]
 - @param #table categories [array of unit categories to detect eg: {Unit.Category.AIRPLANE, Unit.Category.HELICOPTER]
@@ -4260,7 +4281,7 @@ function group:getDetectedTargets(detection, categories, range)
     return nil
 end
 
---[[ return a boolean if the group object is alive
+--[[ return a boolean if the #group object is alive
 - @param #group self
 - @return #boolean [true if at least one unit is still alive]
 ]]
@@ -4292,7 +4313,7 @@ function group:isAlive(allOfGroupAlive)
     return false
 end
 
---[[ return a boolean if the group object is in air
+--[[ return a boolean if the #group object is in air
 - @param #group self
 - @return #boolean groupInAir [true if at least one unit is in air]
 ]]
@@ -4319,18 +4340,20 @@ function group:inAir(allOfGroupInAir)
     return false
 end
 
+--[[ return a boolean the #group object is in a zone
+- @param #group self
+- @param #string zoneName [the name of the zone to check if the #group object is inside]
+- @param #boolean allOfGroupInZone [if true, the entire group must be in the zone to return true]
+- @return #boolean
+]]
 function group:inZone(zoneName, allOfGroupInZone)
     if zonesByName[zoneName] then
         local dcsGroup = self:getDCSGroup()
         if dcsGroup then
-            local units = self:getDCSUnits()
-            local triggerZone = util:deepCopy(zonesByName[zoneName])
-            local zonePoint = {["x"] = triggerZone.x, ["z"] = triggerZone.y}
-            local zoneRadius = triggerZone.radius
+            local units = self:getUnits()
             local inZoneCount = 0
             for _, unit in pairs(units) do
-                local unitPoint = unit:getPoint()
-                if ((unitPoint.x - zonePoint.x)^2 + (unitPoint.z - zonePoint.z)^2)^0.5 >= zoneRadius then
+                if unit:inZone(zoneName) then
                     inZoneCount = inZoneCount + 1
                 end
             end
@@ -4353,7 +4376,7 @@ end
 
 -- ** dcs class #Group Wrapper Methods ** --
 
---[[ return the DCS Class Group from the group object
+--[[ return the DCS Class Group from the #group object
 - @param #group self
 - @return DCS#Group
 ]]
@@ -4365,7 +4388,7 @@ function group:getDCSGroup()
     return nil
 end
 
---[[ return the category from the group object
+--[[ return the category from the #group object
 - Group.Category enums found here: https://wiki.hoggitworld.com/view/DCS_Class_Group
 - @param #group self
 - @return #enum groupCategory
@@ -4378,7 +4401,7 @@ function group:getCategory()
     return nil
 end
 
---[[ return the coalition from the group object
+--[[ return the coalition from the #group object
 -- coalition.side enums found here: https://wiki.hoggitworld.com/view/DCS_singleton_coalition
 - @param #group self
 - @return #number groupCoalition
@@ -4391,7 +4414,7 @@ function group:getCoalition()
     return self
 end
 
---[[ return the group name from the group object
+--[[ return the group name from the #group object
 - @param #group self
 - @return #string groupName
 ]]
@@ -4399,7 +4422,7 @@ function group:getName()
     return self.groupTemplate.name
 end
 
---[[ return the unique object identifier given to the group object
+--[[ return the unique object identifier given to the #group object
 - @param #group self
 - @return #number groupId
 ]]
@@ -4411,7 +4434,7 @@ function group:getID()
     return nil
 end
 
---[[ get a dcs class #Unit from the group object
+--[[ get a dcs class #Unit from the #group object
 - @param #group self
 - @param #number unitId [the unitId within the group to obtain]
 - @return DCS#Unit dcsUnit
@@ -4424,7 +4447,7 @@ function group:getDCSUnit(unitId)
     return nil
 end
 
---[[ get all the DCS#Units from the group object
+--[[ get all the DCS#Units from the #group object
 - @param #group self
 - #return DCS#Units units
 ]]
@@ -4436,7 +4459,7 @@ function group:getDCSUnits()
     return nil
 end
 
---[[ return the current size of the group object
+--[[ return the current size of the #group object
 - @param #group self
 - @return #number groupSize
 ]]
@@ -4448,7 +4471,7 @@ function group:getSize()
     return 0
 end
 
---[[ return the inital size of the group object
+--[[ return the inital size of the #group object
 - this does not return the current size but the size of group template
 - @param #group self
 - @return #number initGroupSize
@@ -4461,7 +4484,7 @@ function group:getInitialSize()
     return nil
 end
 
---[[ return the DCS#Controller for the group object
+--[[ return the DCS#Controller for the #group object
 - @param #group self
 - @return DCS#GroupController
 ]]
@@ -4473,7 +4496,7 @@ function group:getController()
     return nil
 end
 
---[[ return a boolean if the group object exists currently
+--[[ return a boolean if the #group object exists currently
 - @param #groups self
 - @return #boolean groupExist
 ]]
@@ -4497,7 +4520,7 @@ function group:activate()
     return self
 end
 
---[[ destroy the group object with no explosion
+--[[ destroy the #group object with no explosion
 - @param #group self
 - @return #group self
 ]]
@@ -4509,7 +4532,7 @@ function group:destroy()
     return self
 end
 
---[[ enable the group object to have its radar emitters on or off
+--[[ enable the #group object to have its radar emitters on or off
 - @param #group self
 - @param #boolean emission [if true the group will enable its radars]
 - @return #group self
