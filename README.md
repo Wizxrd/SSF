@@ -13,26 +13,28 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 2) Install the [Lua Language Server](https://github.com/sumneko/lua-language-server) from sumneko, which includes a number of useful features like Auto Completion and IntelliSense. Follow this .gif for install instructions.
 ![VSC](https://github.com/sumneko/vscode-lua/raw/master/images//Install%20In%20VSCode.gif)
 
-## ***Singletons***
-- [X] [util](./singletons/util/README.md)
+## [***enumerators***](./enumerators)
+- [X] [waypoint](./enumerators/1.waypoint)
+- [X] [weaponFlag](./enumerators/2.weaponFlag)
+- [X] [event](./enumerators/3.event)
+- [X] [smoke](./enumerators/4.smoke)
 
-## ***Enumerators***
-- [X] [waypoint](./enumerators/waypoint/README.md)
-- [X] [weaponFlag](./enumerators/weaponFlag/README.md)
-- [X] [event](./enumerators/event/README.md)
+## [***classes***](./classes)
 
-## ***Classes***
-### ***Main***
-- [ ] [birth](./classes/main/birth/README.md)
-- [X] [fsm](./classes/main/fsm/README.md)
-- [ ] [handler](./classes/main/handler/README.md)
+### [***main***](./classes/1.main)
+- [ ] [util](./classes/1.main/1.util)
+- [ ] [fsm](./classes/1.main/2.fsm)
+- [ ] [handler](./classes/1.main/3.handler)
+- [ ] [birth](./classes/1.main/4.birth)
+- [ ] [search](./classes/1.main/5.search)
 
-### ***Ai***
-- [X] [element](./classes/ai/element/README.md)
+### [***ai***](./classes/2.ai)
+- [X] [cap](./classes/2.ai/1.cap)
 
-### ***Wrappers***
-- [ ] [group](./classes/wrappers/group/README.md)
-- [ ] [unit](./classes/wrappers/unit/README.md)
-- [ ] [static](./classes/wrappers/static/README.md)
+### [***wrapper***](./classes/3.wrapper)
+- [ ] [unit](./classes/3.wrapper/1.unit)
+- [ ] [static](./classes/3.wrapper/2.static)
+- [ ] [airbase](./classes/3.wrapper/3.airbase)
+- [ ] [group](./classes/3.wrapper/4.group)
 
 For additional help and general questions, checkout the community [discord!](https://discord.gg/JNeaNjecXy)

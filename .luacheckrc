@@ -30,9 +30,7 @@ globals = {
     "birth",
     "fsm",
     "handler",
-    "element",
-    "drone",
-    "group",
+    "cap",
     "lfs",
     "smoke",
     "attribute",
@@ -41,5 +39,6 @@ globals = {
     "country",
     "log",
     "airbase",
-    "search"
+    "search",
+    "group"
 }
