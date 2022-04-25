@@ -36,5 +36,3 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 - [ ] [static](./classes/3.wrapper/2.static)
 - [ ] [airbase](./classes/3.wrapper/3.airbase)
 - [ ] [group](./classes/3.wrapper/4.group)
-
-For additional help and general questions, checkout the community [discord!](https://discord.gg/JNeaNjecXy)
