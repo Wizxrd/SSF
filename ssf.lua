@@ -5,19 +5,15 @@
 @authors Wizard#5064
 
 @description
-Simple  Scripting Framework is as the title suggests, a simplified framework comprised
-of pre-made scripted solutions accomplishing most of the more complex tasks for DCS World Mission
-Creators & Designers through simplified Object Orientated Lua Scripting. The classes available in
-the framework will allow mission designers & creators to provide dynamic scenarios to their players
-with little code written. At its core SSF is meant for all users looking to improve their
-mission environments, although there is minimal Lua knowledge required, you do not have to be an
-expert to take advantage of the classes within the framework.
+Simple  Scripting Framework is as the title suggests, is as the title suggests,
+a simplified framework comprised of pre-made scripted solutions using Object
+Orientated Lua Scripting for DCS World Mission Creators.
 
 @github: https://github.com/Wizxrd/SSF/tree/main
 
 @created Jan 30, 2022
 
-@version 0.1.6
+@version 0.2.3
 
 @todo
 
@@ -26,7 +22,7 @@ expert to take advantage of the classes within the framework.
 -- build information
 local major   = 0
 local minor   = 2
-local patch   = 2
+local patch   = 3
 local debugger = true
 
 --
@@ -36,8 +32,8 @@ local debugger = true
 --
 
 --[[ send a message to dcs.log under the prefix of "INFO SSF"
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
+- @param string msg [the message to send]
+- @param args [any arguments to be formatted into the message]
 - @return none
 ]]
 local function logInfo(debug, msg,...)
@@ -121,6 +117,12 @@ do
         ["ship"] = 3,
     }
 
+    local coalitions = {
+        ["neutral"] = 0,
+        ["red"] = 1,
+        ["blue"] = 2
+    }
+
     for coaSide, coaData in pairs(env.mission.coalition) do
         if coaSide == "neutrals" then coaSide = "neutral" end
         if type(coaData) == "table" then
@@ -134,7 +136,6 @@ do
                                     if groupData.lateActivation then
                                         groupData.lateActivation = false
                                     end
-
                                     groupsByName[groupData.name] = {
                                         ["name"] = groupData.name,
                                         ["task"] = groupData.task,
@@ -147,7 +148,7 @@ do
                                         ["communication"] = groupData.communication,
                                         ["visible"] = groupData.visible,
                                         ["units"] = groupData.units,
-                                        ["coalition"] = coaSide,
+                                        ["coalition"] = coalitions[coaSide],
                                         ["countryId"] = ctryData.id,
                                         ["category"] = category or false,
                                     }
@@ -180,6 +181,8 @@ do
             ["id"] = airdrome:getID(),
             ["point"] = airdrome:getPoint(),
             ["category"] = airdrome:getDesc().category,
+            ["coalition"] = airdrome:getCoalition(),
+            ["countryId"] = airdrome:getCountry(),
         }
         if Airbase.getUnit(airdrome) then
             airbasesByName[airbaseName].unitId = Airbase.getUnit(airdrome):getID()
@@ -692,8 +695,8 @@ function util:removeFunction(funcId)
 end
 
 --[[ inherit the methods from one class to another
-- @param #table child [the child, the class to be inherited to]
-- @param #table parent [the parent, the class to be inherited from]
+- @param #table child [the child, the class that will inherit]
+- @param #table parent [the parent, the class that the child inherits from]
 - @return #table Child [the child with inheritance from the parent]
 ]]
 function util:inherit(child, parent)
@@ -1597,47 +1600,54 @@ function handler:onEvent(event)
             local _event = self.events[event.id]
             local eventData = {}
             if event.initiator ~= nil then
-                eventData.initUnit = event.initiator
-                eventData.initUnitName = event.initiator:getName()
-                eventData.initUnitVec3 = event.initiator:getPoint()
-                if event.initiator:getGroup() then
-                    eventData.initGroup = event.initiator:getGroup()
-                    eventData.initGroupName = event.initiator:getGroup():getName()
-                    eventData.initGroupId = event.initiator:getGroup():getID()
+                local dcsUnit = event.initiator
+                eventData.initUnit = dcsUnit
+                eventData.initUnitName = dcsUnit:getName()
+                eventData.initUnitVec3 = dcsUnit:getPoint()
+                if dcsUnit:getGroup() then
+                    eventData.initGroup = dcsUnit:getGroup()
+                    eventData.initGroupName = dcsUnit:getGroup():getName()
+                    eventData.initGroupId = dcsUnit:getGroup():getID()
                 end
-                eventData.initUnitCoalition = event.initiator:getCoalition()
-                eventData.initUnitCategory = event.initiator:getDesc().category
-                eventData.initUnitTypeName = event.initiator:getTypeName()
-                if event.initiator:getPlayerName() then
-                    eventData.initPlayerUnit = event.initiator
-                    eventData.initPlayerUnitName = event.initiator:getName()
-                    eventData.initPlayerName = event.initiator:getPlayerName()
-                    eventData.initPlayerCategory = event.initiator:getDesc().category
-                    if event.initiator:getGroup() then
-                        eventData.initPlayerGroup = event.initiator:getGroup()
-                        eventData.initPlayerGroupId = event.initiator:getGroup():getID()
-                        eventData.initPlayerGroupName = event.initiator:getGroup():getName()
+                eventData.initUnitCoalition = dcsUnit:getCoalition()
+                eventData.initUnitCategory = dcsUnit:getDesc().category
+                eventData.initUnitTypeName = dcsUnit:getTypeName()
+                if dcsUnit:getPlayerName() then
+                    eventData.initPlayerUnit = dcsUnit
+                    eventData.initPlayerUnitName = dcsUnit:getName()
+                    eventData.initPlayerName = dcsUnit:getPlayerName()
+                    eventData.initPlayerCategory = dcsUnit:getDesc().category
+                    if dcsUnit:getGroup() then
+                        eventData.initPlayerGroup = dcsUnit:getGroup()
+                        eventData.initPlayerGroupId = dcsUnit:getGroup():getID()
+                        eventData.initPlayerGroupName = dcsUnit:getGroup():getName()
                     end
-                    eventData.initPlayerCoalition = event.initiator:getCoalition()
-                    eventData.initPlayerUnitTypeName = event.initiator:getTypeName()
+                    eventData.initPlayerCoalition = dcsUnit:getCoalition()
+                    eventData.initPlayerUnitTypeName = dcsUnit:getTypeName()
                 end
             end
             if event.target ~= nil then
-                eventData.tgtUnit = event.target
-                eventData.tgtUnitName = event.target:getName()
-                eventData.tgtGroup = event.target:getGroup()
-                eventData.tgtGroupName = event.target:getGroup():getName()
-                if event.target:getPlayerName() then
-                    eventData.tgtPlayerName = event.target:getPlayerName()
+                local dcsUnit = event.target
+                eventData.tgtUnit = dcsUnit
+                eventData.tgtUnitName = dcsUnit:getName()
+                eventData.tgtGroup = dcsUnit:getGroup()
+                eventData.tgtGroupName = dcsUnit:getGroup():getName()
+                if dcsUnit:getPlayerName() then
+                    eventData.tgtPlayerName = dcsUnit:getPlayerName()
                 end
             end
             if event.weapon ~= nil then
-                eventData.weapon = event.weapon
-                eventData.weaponObjTypeName = event.weapon:getTypeName()
+                local dcsWeapon = event.weapon
+                eventData.weapon = dcsWeapon
+                eventData.weaponName = dcsWeapon:getName()
+                eventData.weaponObjTypeName = dcsWeapon:getTypeName()
             end
             if event.place ~= nil then
-                eventData.place = event.place
-                eventData.placeName = event.place:getName()
+                local dcsAirbase = event.place
+                eventData.airbase = dcsAirbase
+                eventData.airbaseName = dcsAirbase:getName()
+                eventData.airbaseCoalition = dcsAirbase:getCoalition()
+                eventData.airbaseVec3 = dcsAirbase:getPoint()
             end
             if event.text ~= nil then
                 eventData.markId = event.idx
@@ -2157,173 +2167,228 @@ search.debug = true
 ]]
 function search:new()
     local self = util:inherit(self, handler:new())
-    self.groups = {}
-    self.filter = {}
+    self.database = nil
+    self.filters = {}
     return self
 end
 
---[[ search for objects by a sub string
-- can find a specific string at any location
-- @param #search self
-- @param #string subString [the sub string to search for]
-- @return #search self
-]]
-function search:searchBySubString(subString)
-    self.filter.subString = subString
-    return self
-end
-
---[[ search for objects by a starting prefix
-- can only find stings at the start
-- @param #search self
-- @param #string prefix [the prefix to search for]
-- @return #search self
-]]
-function search:searchByPrefix(prefix)
-    self.filter.prefix = prefix
-    return self
-end
-
---[[ search for objects by coalition
-- @param #search self
-- @param #enum coalition [coalition side eg: 0 = neutral, 1 = red, 2 = blue]
-- @return #search self
-]]
 function search:searchByCoalition(coalition)
-    self.filter.coalition = coalition
+    self.filters.coalition = coalition
     return self
 end
 
---[[ search for objects by country
-- @param #search self
-- @param #enum country [countryId eg: country.id.USA = 2]
-- @return #search self
-]]
-function search:searchByCountry(countryId)
-    self.filter.country = countryId
-    return self
-end
-
---[[ search for objects by category
-- @param #search self
-- @param #enum country [category eg; Group.Category.AIRPLANE]
-- @return #search self
-]]
 function search:searchByCategory(category)
-    self.filter.category = category
+    self.filters.category = category
     return self
 end
 
---[[ search for units one time and return an array of unit objects
-- @param #search self
-- @return #array units
-]]
-function search:searchForUnitsOnce()
-    local units = {}
-    for unitName, unitData in pairs(unitsByName) do
-        -- filter subStrings
-        if self.filter.subString then
-            if string.find(unitName, self.filter.subString) then
-                units[#units+1] = unit:getByName(unitName)
+function search:searchByCountry(countryId)
+    self.filters.countryId = countryId
+    return self
+end
+
+function search:searchBySubString(subString)
+    self.subString = subString
+    return self
+end
+
+function search:searchByPrefix(prefix)
+    self.prefix = prefix
+    return self
+end
+
+function search:searchByField(field, value)
+    self.filters[field] = value
+    return self
+end
+
+function search:searchOnce()
+    local objects = {}
+    local filterHit
+    local st = os.clock()
+    for objectName, objectData in pairs(self.database) do
+        filterHit = true
+        if self.subString then
+            if not string.find(objectName, self.subString) then
+                filterHit = false
             end
         end
-        -- filter starts with prefix
-        if self.filter.prefix then
-            if string.find(unitName, self.filter.prefix, 1, true) == 1 then
-                units[#units+1] = unit:getByName(unitName)
+
+        if self.prefix then
+            local pfx = string.find(objectName, self.prefix, 1, true)
+            if pfx ~= 1 then
+                filterHit = false
             end
         end
-        -- filter coalitions
-        if self.filter.coalition then
-            if unitData.coalition == unitData.coalition then
-                units[#units+1] = unit:getByName(unitName)
+
+        for filterType, filterValue in pairs(self.filters) do
+            local fieldValue = objectData[filterType]
+            if fieldValue ~= filterValue then
+                filterHit = false
             end
         end
-        -- filter categorys
-        if self.filter.category then
-            if unitData.category == self.filter.category then
-                units[#units+1] = unit:getByName(unitName)
-            end
-        end
-        -- filter countrys
-        if self.filter.country then
-            if unitData.countryId == self.filter.country then
-                units[#units+1] = unit:getByName(unitName)
-            end
+
+        if filterHit then
+            objects[#objects+1] = group:getByName(objectName)
         end
     end
-    return units
+    local et = os.clock() - st
+    util:logInfo(true, "searchOnce iteration took %0.4f seconds", et)
+    return objects
 end
 
---[[ search for statics one time and return an array of static objects
-- @param #search self
-- @return #array statics
-]]
-function search:searchForStaticsOnce()
-    local statics = {}
-    return statics
+searchGroup = {}
+
+function searchGroup:new()
+    local self = util:inherit(self, search:new())
+    self.database = util:deepCopy(groupsByName)
+    return self
 end
 
---[[ search for airbases one time and return an array of airbase objects
-- @param #search self
-- @return #array airbases
-]]
-function search:searchForAirbasesOnce()
-    local airbases = {}
-    return airbases
+searchUnit = {}
+
+function searchUnit:new()
+    local self = util:inherit(self, search:new())
+    self.database = util:deepCopy(unitsByName)
+    return self
 end
 
---[[ search for groups one time and return an array of group objects
-- @param #search self
-- @return #array groups
+searchStatic = {}
+
+function searchStatic:new()
+    local self = util:inherit(self, search:new())
+    self.database = util:deepCopy(staticsByName)
+    return self
+end
+
+searchAirbase = {}
+
+function searchAirbase:new()
+    local self = util:inherit(self, search:new())
+    self.database = util:deepCopy(airbasesByName)
+    return self
+end
+
+--[[
+
+@class #zone
+
+@authors Wizard
+
+@description
+
+@features
+
+@created Apr 26, 2022
+
 ]]
-function search:searchForGroupsOnce()
-    local groups = {}
-    for groupName, groupData in pairs(groupsByName) do
-        -- filter subStrings
-        if self.filter.subString then
-            if string.find(groupName, self.filter.subString) then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-        -- filter starts with prefix
-        if self.filter.prefix then
-            if string.find(groupName, self.filter.prefix, 1, true) == 1 then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-        -- filter coalitions
-        if self.filter.coalition then
-            if groupData.coalition == self.filter.coalition then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-        -- filter categorys
-        if self.filter.category then
-            if groupData.category == self.filter.category then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
-        -- filter countrys
-        if self.filter.country then
-            if groupData.countryId == self.filter.country then
-                groups[#groups+1] = group:getByName(groupName)
-            end
-        end
 
+zone = {}
 
-
+function zone:getByName(zoneName)
+    if zonesByName[zoneName] then
+        local self = util:inherit(self, fsm:new())
+        self.zoneName = zoneName
+        self.zoneData = util:deepCopy(zonesByName[zoneName])
+        return self
     end
-    return groups
 end
 
---[[ search for zones one time and return an array of zone objects
-- @param #search self
-- @return #array zones
-]]
-function search:searchForZonesOnce()
-    local zones = {}
-    return zones
+function zone:getVec2()
+    local vec2 = {}
+    vec2.x = self.zoneData.x
+    vec2.y = self.zoneData.y
+    return vec2
+end
+
+function zone:getVec3()
+    local vec3 = {}
+    vec3.x = self.zoneData.x
+    vec3.y = 0
+    vec3.z = self.zoneData.y
+    return vec3
+end
+
+function zone:getRadius()
+    return self.zoneData.radius
+end
+
+function zone:getID()
+    return self.zoneData.id
+end
+
+function zone:getColor()
+    return self.zoneData.color
+end
+
+function zone:getProperties()
+    return self.zoneData.properties
+end
+
+function zone:isHidden()
+    return self.zoneData.hidden
+end
+
+function zone:getName()
+    return self.zoneName
+end
+
+function zone:getType()
+    return self.zoneData.type
+end
+
+function zone:inZone(vec3)
+    local zoneVec3 = self:getVec3()
+    if ((vec3.x - zoneVec3.x)^2 + (vec3.z - zoneVec3.z)^2)^0.5 >= self:getRadius() then
+        return true
+    end
+    return false
+end
+
+-- needs to generate a completely unique id
+function zone:draw(coalition, lineColor, fillColor, lineType, readOnly, message)
+    --local drawingId = generateMarkId()
+    if self.drawingId then -- undraw an existing one
+        self:undraw()
+    end
+    --self.drawingId = drawingId -- storing for later when it comes time to undraw
+    if self.zoneData.type == 2 then
+        local quad = {}
+        quad[#quad+1] = coalition
+        quad[#quad+1] = 1 --drawingId
+        quad[#quad+1] = self.zoneData.verticies[1]
+        quad[#quad+1] = self.zoneData.verticies[2]
+        quad[#quad+1] = self.zoneData.verticies[3]
+        quad[#quad+1] = self.zoneData.verticies[4]
+        quad[#quad+1] = lineColor
+        quad[#quad+1] = fillColor
+        quad[#quad+1] = lineType
+        quad[#quad+1] = readOnly or false
+        quad[#quad+1] = message or nil
+        trigger.action.quadToAll(table.unpack(quad))
+    else
+        local circle = {}
+        local center = self:getVec3()
+        circle[#circle+1] = coalition
+        circle[#circle+1] = 1 --drawingId
+        circle[#circle+1] = center
+        circle[#circle+1] = self.zoneData.radius
+        circle[#circle+1] = lineColor
+        circle[#circle+1] = fillColor
+        circle[#circle+1] = lineType
+        circle[#circle+1] = readOnly or false
+        circle[#circle+1] = message or nil
+        trigger.action.circleToAll(table.unpack(circle))
+    end
+    return self
+end
+
+function zone:undraw()
+    if self.drawingId then
+        trigger.action.removeMark(self.drawingId)
+        self.drawingId = nil
+    end
+    return self
 end
 
 --
@@ -3073,16 +3138,10 @@ end
 - @return #boolean
 ]]
 function unit:inZone(zoneName)
-    if zonesByName[zoneName] then
-        local triggerZone = util:deepCopy(zonesByName[zoneName])
-        local zonePoint = {["x"] = triggerZone.x, ["z"] = triggerZone.y}
-        local zoneRadius = triggerZone.radius
-        local unitPoint = self:getPoint()
-        if ((unitPoint.x - zonePoint.x)^2 + (unitPoint.z - zonePoint.z)^2)^0.5 >= zoneRadius then
-            return true
-        end
-    else
-        util:logError(self.debug, "%s is not a trigger zone defined in the mission editor", zoneName)
+    local triggerZone = zone:getByName(zoneName)
+    if triggerZone then
+        local inZone = triggerZone:inZone(self:getPoint())
+        return inZone
     end
     return false
 end
@@ -4085,7 +4144,7 @@ group.debug = true
 - @return #group self
 ]]
 function group:getByName(groupName)
-    if groupsByName[groupName] then
+    if groupsByName[groupName] ~= nil then
         local self = util:inherit(self, handler:new())
         self.groupName = groupName
         self.groupTemplate = util:deepCopy(groupsByName[groupName])
@@ -4126,8 +4185,8 @@ end
 ]]
 function group:getUnits()
     local units = {}
-    for _, unit in pairs(self.groupTemplate.units) do
-        units[#units+1] = unit:getByName(unit.name)
+    for _, u in pairs(self.groupTemplate.units) do
+        units[#units+1] = unit:getByName(u.name)
     end
     return units
 end
@@ -4347,29 +4406,25 @@ end
 - @return #boolean
 ]]
 function group:inZone(zoneName, allOfGroupInZone)
-    if zonesByName[zoneName] then
-        local dcsGroup = self:getDCSGroup()
-        if dcsGroup then
-            local units = self:getUnits()
-            local inZoneCount = 0
-            for _, unit in pairs(units) do
-                if unit:inZone(zoneName) then
-                    inZoneCount = inZoneCount + 1
-                end
-            end
-
-            if allOfGroupInZone then
-                if inZoneCount == #units then
-                    return true
-                end
-            else
-                if inZoneCount > 0 then
-                    return true
-                end
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        local units = self:getUnits()
+        local inZoneCount = 0
+        for _, _unit in pairs(units) do
+            if _unit:inZone(zoneName) then
+                inZoneCount = inZoneCount + 1
             end
         end
-    else
-        util:logError(self.debug, "%s is not a trigger zone defined in the mission editor", zoneName)
+
+        if allOfGroupInZone then
+            if inZoneCount == #units then
+                return true
+            end
+        else
+            if inZoneCount > 0 then
+                return true
+            end
+        end
     end
     return false
 end
@@ -4381,7 +4436,7 @@ end
 - @return DCS#Group
 ]]
 function group:getDCSGroup()
-    local dcsGroup = self:getDCSGroup()
+    local dcsGroup = Group.getByName(self.groupName)
     if dcsGroup then
         return dcsGroup
     end
@@ -4411,7 +4466,7 @@ function group:getCoalition()
     if dcsGroup then
         return dcsGroup:getCoalition()
     end
-    return self
+    return nil
 end
 
 --[[ return the group name from the #group object
@@ -4419,7 +4474,7 @@ end
 - @return #string groupName
 ]]
 function group:getName()
-    return self.groupTemplate.name
+    return self.groupName or nil
 end
 
 --[[ return the unique object identifier given to the #group object
@@ -4546,5 +4601,3 @@ function group:enableEmission(emission)
 end
 
 util:logInfo(debugger, "successfully loaded SSF v%d.%d.%d", major, minor, patch)
-
---[[ QUICK TESTING ARENA ]] -- REMOVE BEFORE PUSH

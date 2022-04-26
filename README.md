@@ -2,7 +2,7 @@
 # ***SSF***
 
 ## ***Description***
-***S***imple  ***S***cripting ***F***ramework is as the title suggests, a simplified framework comprised of pre-made scripted solutions using Object Orientated Lua Scripting.
+***S***imple  ***S***cripting ***F***ramework is as the title suggests, a simplified framework comprised of pre-made scripted solutions using Object Orientated Lua Scripting for DCS World Mission Creators.
 
 ## ***Download***
 To download the source code, you can navigate to here for the latest release: [LINK](). You can also download the latest code from the development branch, via the big green button that says "Code", click on it and select either option to Open with GitHub Desktop (if applicable) or Download ZIP.
@@ -22,11 +22,13 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 ## [***classes***](./classes)
 
 ### [***main***](./classes/1.main)
-- [ ] [util](./classes/1.main/1.util)
-- [ ] [fsm](./classes/1.main/2.fsm)
-- [ ] [handler](./classes/1.main/3.handler)
+- [X] [util](./classes/1.main/1.util)
+- [X] [fsm](./classes/1.main/2.fsm)
+- [X] [handler](./classes/1.main/3.handler)
 - [ ] [birth](./classes/1.main/4.birth)
 - [ ] [search](./classes/1.main/5.search)
+- [ ] [zone](./classes/1.main/6.zone)
+
 
 ### [***ai***](./classes/2.ai)
 - [X] [cap](./classes/2.ai/1.cap)

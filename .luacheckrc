@@ -40,5 +40,10 @@ globals = {
     "log",
     "airbase",
     "search",
-    "group"
+    "group",
+    "searchGroup",
+    "searchUnit",
+    "searchStatic",
+    "searchAirbase",
+    "zone"
 }
