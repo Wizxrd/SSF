@@ -17,21 +17,20 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 - [X] [waypoint](./enumerators/1.waypoint)
 - [X] [weaponFlag](./enumerators/2.weaponFlag)
 - [X] [event](./enumerators/3.event)
-- [X] [smoke](./enumerators/4.smoke)
+- [X] [smoke](./enumerators/4.smoke) 
 
 ## [***classes***](./classes)
 
 ### [***main***](./classes/1.main)
-- [X] [util](./classes/1.main/1.util)
+- [ ] [util](./classes/1.main/1.util)
+- [ ] [logger](./classes/1.main/1.util)
+- [ ] [message](./classes/1.main/1.util)
+- [ ] [scheduler](./classes/1.main/1.util)
 - [X] [fsm](./classes/1.main/2.fsm)
-- [X] [handler](./classes/1.main/3.handler)
+- [ ] [handler](./classes/1.main/3.handler)
 - [ ] [birth](./classes/1.main/4.birth)
 - [ ] [search](./classes/1.main/5.search)
 - [ ] [zone](./classes/1.main/6.zone)
-
-
-### [***ai***](./classes/2.ai)
-- [X] [cap](./classes/2.ai/1.cap)
 
 ### [***wrapper***](./classes/3.wrapper)
 - [ ] [unit](./classes/3.wrapper/1.unit)

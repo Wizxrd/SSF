@@ -13,78 +13,20 @@ Orientated Lua Scripting for DCS World Mission Creators.
 
 @created Jan 30, 2022
 
-@version 0.2.3
+@version 0.3.0
 
 @todo
 
 ]]
 
--- build information
-local major   = 0
-local minor   = 2
-local patch   = 3
-local debugger = true
+ssf = {}
 
---
---
--- ** local functions ** --
---
---
-
---[[ send a message to dcs.log under the prefix of "INFO SSF"
-- @param string msg [the message to send]
-- @param args [any arguments to be formatted into the message]
-- @return none
-]]
-local function logInfo(debug, msg,...)
-    if debug then
-        log.write("SSF", log.INFO, string.format(msg, ...))
-    end
-end
-
---[[ send a message to dcs.log under the prefix of "WARNING SSF"
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-local function logWarning(debug, msg,...)
-    if debug then
-        log.write("SSF", log.WARNING, string.format(msg, ...))
-    end
-end
-
---[[ send a message to dcs.log under the prefix of "ERROR SSF"
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-local function logError(debug, msg,...)
-    if debug then
-        log.write("SSF", log.ERROR, string.format(msg, ...))
-    end
-end
-
---[[ deep copy a table recursively through all levels of the table.
-- this is a mist function reused and can be referenced here: https://wiki.hoggitworld.com/view/MIST_deepCopy
-- @param #table object
-- @return #table object
-]]
-local function deepCopy(object)
-    local lookup_table = {}
-    local function _copy(object)
-        if type(object) ~= "table" then
-            return object
-        elseif lookup_table[object] then
-            return lookup_table[object]
-        end
-        local new_table = {}
-        lookup_table[object] = new_table
-        for index, value in pairs(object) do
-            new_table[_copy(index)] = _copy(value)
-        end
-        return setmetatable(new_table, getmetatable(object))
-    end
-    return _copy(object)
+function ssf:initialize()
+    ssf = util:inheritParent(self, logger)
+    ssf.version = "v0.3.0"
+    ssf.source = "ssf.lua"
+    ssf.level = 5
+    ssf:initializeDatabases()
 end
 
 --
@@ -93,22 +35,15 @@ end
 --
 --
 
-
--- the building blocks
 local groupsByName = {}
 local unitsByName = {}
 local staticsByName = {}
 local airbasesByName = {}
 local zonesByName = {}
 local payloadsByUnitName = {}
+local liverysByUnitName = {}
 
-do
-
-    local st = false
-
-    if os then
-        st = os.clock()
-    end
+function ssf:initializeDatabases()
 
     local categories = {
         ["plane"] = 0,
@@ -132,39 +67,20 @@ do
                         if objType == "plane" or objType == "helicopter" or objType == "vehicle" or objType == "ship" then
                             for _, groupData in pairs(objData.group) do
                                 if groupData and type(groupData.units) == "table" and #groupData.units > 0 then
-                                    local category = categories[objType]
                                     if groupData.lateActivation then
                                         groupData.lateActivation = false
                                     end
-                                    groupsByName[groupData.name] = {
-                                        ["name"] = groupData.name,
-                                        ["task"] = groupData.task,
-                                        ["start_time"] = groupData.start_time,
-                                        ["hidden"] = groupData.hidden,
-                                        ["route"] = groupData.route,
-                                        ["uncontrolled"] = groupData.uncontrolled,
-                                        ["modulation"] = groupData.modulation,
-                                        ["frequency"] = groupData.frequency,
-                                        ["communication"] = groupData.communication,
-                                        ["visible"] = groupData.visible,
-                                        ["units"] = groupData.units,
-                                        ["coalition"] = coalitions[coaSide],
-                                        ["countryId"] = ctryData.id,
-                                        ["category"] = category or false,
-                                    }
-
-                                    for _, unitData in pairs(groupsByName[groupData.name].units) do
-                                        unitData.unitId = nil
-                                        unitData.coalition = coaSide
-                                    end
-
-                                    logInfo(debugger, "group database registered group %s into groupsByName", groupData.name)
+                                    groupsByName[groupData.name] = util:deepCopy(groupData)
+                                    groupsByName[groupData.name].coalition = coalitions[coaSide]
+                                    groupsByName[groupData.name].countryId = ctryData.id
+                                    groupsByName[groupData.name].category = categories[objType]
+                                   self:debug("ssf:initializeDatabases(): group database registered group %s into groupsByName", groupData.name)
                                 end
                             end
                         elseif objType == "static" then
                             for _, staticData in pairs(objData.group) do
-                                staticsByName[staticData.name] = deepCopy(staticData.units[1])
-                                logInfo(debugger, "static database registered static %s into staticsByName", staticData.name)
+                                staticsByName[staticData.name] = util:deepCopy(staticData)
+                               self:debug("ssf:initializeDatabases(): static database registered static %s into staticsByName", staticData.name)
                             end
                         end
                     end
@@ -186,84 +102,45 @@ do
         }
         if Airbase.getUnit(airdrome) then
             airbasesByName[airbaseName].unitId = Airbase.getUnit(airdrome):getID()
-            logInfo(debugger, "airbase database registered airbase *unit* %s into airbasesByName", airbaseName)
+           self:debug("ssf:initializeDatabases(): airbase database registered airbase *unit* %s into airbasesByName", airbaseName)
+        else
+           self:debug("ssf:initializeDatabases(): airbase database registered airbase %s into airbasesByName", airbaseName)
         end
-        logInfo(debugger, "airbase database registered airbase unit %s into airbasesByName", airbaseName)
     end
 
     for _, zones in pairs(env.mission.triggers) do
         for _, zoneData in pairs(zones) do
-            zonesByName[zoneData.name] = {
-                ["radius"] = zoneData.radius,
-                ["zoneId"] = zoneData.zoneId,
-                ["color"] =
-                {
-                    [1] = zoneData.color[1],
-                    [2] = zoneData.color[2],
-                    [3] = zoneData.color[3],
-                    [4] = zoneData.color[4],
-                },
-                ["properties"] = zoneData.properties,
-                ["hidden"] = zoneData.hidden,
-                ["y"] = zoneData.y,
-                ["x"] = zoneData.x,
-                ["name"] = zoneData.name,
-                ["type"] = zoneData.type,
-            }
-            logInfo(debugger, "zone database registered trigger zone %s into zonesByName", zoneData.name)
-            if zoneData.type == 2 then
-                zonesByName[zoneData.name].verticies = zoneData.verticies
-            end
+            zonesByName[zoneData.name] = util:deepCopy(zoneData)
+            self:debug("ssf:initializeDatabases(): zone database registered trigger zone %s into zonesByName", zoneData.name)
         end
     end
 
     for _, groupData in pairs(groupsByName) do
         for _, unitData in pairs(groupData.units) do
             if unitData.skill ~= "Client" or unitData.skill ~= "Player" then -- this exception still collects them, it makes no sense
-                unitsByName[unitData.name] = {
-                    ["name"] = unitData.name,
-                    ["type"] = unitData.type,
-                    ["x"] = unitData.x,
-                    ["y"] = unitData.y,
-                    ["alt"] = unitData.alt,
-                    ["alt_type"] = unitData.alt_type,
-                    ["speed"] = unitData.speed,
-                    ["payload"] = unitData.payload,
-                    ["callsign"] = unitData.callsign,
-                    ["heading"] = unitData.heading,
-                    ["playerCanDrive"] = unitData.playerCanDrive,
-                    ["skill"] = unitData.skill,
-                    ["livery_id"] = unitData.livery_id,
-                    ["psi"] = unitData.psi,
-                    ["onboard_num"] = unitData.onboard_num,
-                    ["ropeLength"] = unitData.ropeLength,
-                    ["countryId"] = groupData.countryId,
-                    ["coalition"] = groupData.coalition,
-                    ["category"] = groupData.category,
-                    ["groupName"] = groupData.name
-                }
-                logInfo(debugger, "unit database registered unit %s into unitsByName", unitData.name)
+                unitsByName[unitData.name] = util:deepCopy(unitData)
+                self:debug("ssf:initializeDatabases(): unit database registered unit %s into unitsByName", unitData.name)
                 if unitData.payload then
-                    payloadsByUnitName[unitData.name] = deepCopy(unitData.payload)
-                    logInfo(debugger, "payload database registered unit %s into payloadsByUnitName", unitData.name)
+                    payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
+                    self:debug("ssf:initializeDatabases(): payload database registered unit %s into payloadsByUnitName", unitData.name)
+                end
+                if unitData.livery_id then
+                    liverysByUnitName[unitData.name] = util:deepCopy(unitData.livery_id)
+                    self:debug("ssf:initializeDatabases(): livery database registered unit %s into liverysByUnitName", unitData.name)
                 end
             end
         end
     end
 
-    groupsByName = deepCopy(groupsByName)
-    unitsByName = deepCopy(unitsByName)
-    staticsByName = deepCopy(staticsByName)
-    airbasesByName = deepCopy(airbasesByName)
-    zonesByName = deepCopy(zonesByName)
-	payloadsByUnitName = deepCopy(payloadsByUnitName)
+    groupsByName = util:deepCopy(groupsByName)
+    unitsByName = util:deepCopy(unitsByName)
+    staticsByName = util:deepCopy(staticsByName)
+    airbasesByName = util:deepCopy(airbasesByName)
+    zonesByName = util:deepCopy(zonesByName)
+	payloadsByUnitName = util:deepCopy(payloadsByUnitName)
+	liverysByUnitName = util:deepCopy(liverysByUnitName)
 
-    if st then
-        local et = os.clock() - st
-        logInfo(debugger, "DATABASE INITIALIZATION COMPLETED AND TOOK %0.4f SECONDS", et)
-    else
-        logInfo(debugger, "DATABASE INITIALIZATION COMPLETED")
-    end
+    self:debug("ssf:initializeDatabases(): databases successfully built")
 end
 
 --
@@ -271,6 +148,8 @@ end
 -- ** enumerators **
 --
 --
+
+enum = {}
 
 --[[
 
@@ -286,7 +165,7 @@ constant table of waypoint options containting the corresponding type and action
 
 ]]
 
-waypoint = {
+enum.waypoint = {
 	["turningPoint"]      = {name = "Turning point",            type = "Turning Point",     action = "Turning Point" },
 	["flyOverPoint"]      = {name = "Fly over point",           type = "Turning Point",     action = "Fly Over Point"},
 	["finPoint"]          = {name = "Fin point N/A",            type = "Fin Point",         action = "Fin Point"},
@@ -325,7 +204,7 @@ constant table of weaponFlags with corresponding values required for tasking
 
 ]]
 
-weaponFlag = {
+enum.weaponFlag = {
     ["NoWeapon"] = 0,
 
     -- Bombs
@@ -407,7 +286,7 @@ constant table for dcs world events. these enums are to be used for handling eve
 
 ]]
 
-event = {
+enum.event = {
     ["shot"] = {
         id = world.event.S_EVENT_SHOT,
         name = "Shot",
@@ -560,12 +439,13 @@ constant table for smoke marker colors
 
 ]]
 
-smoke = {}
-smoke.green = 0
-smoke.red = 1
-smoke.white = 2
-smoke.orange = 3
-smoke.blue = 4
+enum.smoke = {
+    ["green"] = 0,
+    ["red"] = 1,
+    ["white"] = 2,
+    ["orange"] = 3,
+    ["blue"] = 4
+}
 
 --
 --
@@ -575,430 +455,277 @@ smoke.blue = 4
 
 --[[
 
-@singleton #util
+@class #util
 
 @authors Wizard
 
 @description
-useful utility functions that help with logging, messages, conversions, table manipulation, etc.
+useful utility functions
 
 @features
-- info message logging
-- warning message logging
-- error message logging
-- messages to all, a coalition, or a group
-- deepCopy objects
-- serialize variables into strings
-- show tables as messages in game
-- class inheritance
-- save tables to file
-- load tables from file
-- scheduled functions
+- deep copy tables
+- inheritance
+- multiple inheritance
+- vector math
 
-@created Jan 30, 2022
+@created May, 21, 2022
 
 ]]
 
 util = {}
-util.__index = setmetatable({}, util)
 
---[[ send a message to dcs.log under the prefix of "INFO SSF"
-- @param #boolean debug [if true the logging will execute]
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-function util:logInfo(debug, msg, ...)
-    logInfo(debug, msg, ...)
-end
-
---[[ send a message to dcs.log under the prefix of "WARNING SSF"
-- @param #boolean debug [if true the logging will execute]
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-function util:logWarning(debug, msg, ...)
-    logWarning(debug, msg, ...)
-end
-
---[[ send a message to dcs.log under the prefix of "ERROR SSF"
-- @param #boolean debug [if true the logging will execute]
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-function util:logError(debug, msg, ...)
-    logError(debug, msg, ...)
-end
-
---[[ send a message to all players
-- @param #boolean clearview [if true new messages will over write previously displayed ones]
-- @param #number time [the amount of time to display the message]
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-function util:messageToAll(clearview, time, msg, ...)
-    trigger.action.outText(string.format(msg,...), time, clearview)
-end
-
---[[ send a message to players of a specific coalition
-- @param #boolean clearview [if true new messages will over write previously displayed ones]
-- @param #number time [the amount of time to display the message]
-- @param #enum coalition [the coalition the message will be displayed for, eg: coalition.side.RED]
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-function util:messageToCoalition(clearview, time, coalition, msg, ...)
-    trigger.action.outTextForCoalition(coalition, string.format(msg,...), time, clearview)
-end
-
---[[ send a message to players of a specific group
-- @param #boolean clearview [if true new messages will over write previously displayed ones]
-- @param #number time [the amount of time to display the message]
-- @param #number groupId [the groupId the message will be displayed for]
-- @param #string msg [the message to send]
-- @param #args [any arguments to be formatted into the message]
-- @return none
-]]
-function util:messageToGroup(clearview, time, groupId, msg, ...)
-    trigger.action.outTextForGroup(groupId, string.format(msg,...), time, clearview)
-end
-
---[[ return the current time of the mission in seconds to 3 decimal places
-- accounts for time passed even when the mission is paused
-- @param none
-- @return #number time
-]]
-function util:getSimTime()
-    return timer.getTime()
-end
-
---[[ schedule a function to be ran at a later time in seconds
-- @param #function f [the function to be ran]
-- @param #table args [the args if any, to be passed to the function]
-- @param #number time [the time in seconds for the next time to run the function]
-- @return #number schedulerId [the function id of the running scheduler]
-]]
-function util:scheduleFunction(func, args, time)
-    return timer.scheduleFunction(func, args or nil, util:getSimTime() + (time or 0))
-end
-
---[[ remove a scheduled function by it
-- @param #function f [the function to be ran]
-- @return #number schedulerId [the function id of the removed scheduler]
-]]
-function util:removeFunction(funcId)
-    return timer.removeFunction(funcId)
-end
-
---[[ inherit the methods from one class to another
-- @param #table child [the child, the class that will inherit]
-- @param #table parent [the parent, the class that the child inherits from]
-- @return #table Child [the child with inheritance from the parent]
-]]
-function util:inherit(child, parent)
-    local Child = util:deepCopy(child)
-    setmetatable(Child, {__index = parent})
-    return Child
-end
-
---[[ return the parent object ]]
-function util:getParents(key, parents)
-    for i = 1, #parents do
-        if parents[i][key] then
-            return parents[i][key]
+function util:deepCopy(object)
+    local copies = {}
+    local function recursiveCopy(object)
+        if type(object) ~= "table" then return object end
+        if copies[object] then return copies[object] end
+        local copy = {}
+        copies[object] = copy
+        for key, value in pairs(object) do
+            copy[recursiveCopy(key)] = recursiveCopy(value)
         end
+        return setmetatable(copy, getmetatable(object))
     end
+    return recursiveCopy(object)
+end
+
+function util:inheritParent(child, parent)
+    local child = util:deepCopy(child)
+    setmetatable(child, {__index = parent})
+    return child
 end
 
 function util:inheritParents(child, parents)
-    local Child = util:deepCopy(child)
-    local Parents = {
-        __index = function(self, key)
-            return util:getParents(key, parents)
-        end
-    }
-    setmetatable(Child, Parents)
-    return Child
-end
-
---[[ deep copy a table recursively through all levels of the table.
-- this is a mist function reused and can be referenced here: https://wiki.hoggitworld.com/view/MIST_deepCopy
-- @param #table object
-- @return #table object
-]]
-function util:deepCopy(object)
-    return deepCopy(object)
-end
-
---[[ returns the string value of a variable
-- this is a mist function reused and can be referenced here: https://wiki.hoggitworld.com/view/MIST_basicSerialize
-- @param #any var
-- @return #any var
-]]
-function util:basicSerialize(var)
-    if var == nil then
-        return "\"\""
-    else
-        if ((type(var) == 'number') or (type(var) == 'boolean') or (type(var) == 'function') or (type(var) == 'table') or (type(var) == 'userdata')) then
-            return tostring(var)
-        elseif type(var) == 'string' then
-            var = string.format('%q', var)
-            return var
-        end
-    end
-end
-
---[[ return a table non-serialized table made into a string for saving or printing
-- @param #table tbl [the table to show]
-- @return #string tableString [the table formated to a string]
-]]
-function util:tableWriteStr(tableName, tbl)
-    local cache, stack, output = {},{},{}
-    local depth = 1
-    local output_str = tableName.." = {\n"
-
-    while true do
-        local size = 0
-        for k,v in pairs(tbl) do
-            size = size + 1
-        end
-
-        local cur_index = 1
-        for k,v in pairs(tbl) do
-            if (cache[tbl] == nil) or (cur_index >= cache[tbl]) then
-
-                if (string.find(output_str,"}",output_str:len())) then
-                    output_str = output_str .. ",\n"
-                elseif not (string.find(output_str,"\n",output_str:len())) then
-                    output_str = output_str .. "\n"
-                end
-
-                -- This is necessary for working with HUGE tables otherwise we run out of memory using concat on huge strings
-                table.insert(output,output_str)
-                output_str = ""
-
-                local key
-                if (type(k) == "number" or type(k) == "boolean") then
-                    key = "["..tostring(k).."]"
-                else
-                    key = '["'..tostring(k)..'"]'
-                end
-
-                if (type(v) == "number" or type(v) == "boolean") then
-                    output_str = output_str .. string.rep('\t',depth) .. key .. " = "..tostring(v)
-                elseif (type(v) == "table") then
-                    output_str = output_str .. string.rep('\t',depth) .. key .. " = {\n"
-                    table.insert(stack,tbl)
-                    table.insert(stack,v)
-                    cache[tbl] = cur_index+1
-                    break
-                else
-                    output_str = output_str .. string.rep('\t',depth) .. key .. ' = "'..tostring(v)..'"'
-                end
-
-                if (cur_index == size) then
-                    output_str = output_str .. "\n" .. string.rep('\t',depth-1) .. "}"
-                else
-                    output_str = output_str .. ","
-                end
-            else
-                -- close the table
-                if (cur_index == size) then
-                    output_str = output_str .. "\n" .. string.rep('\t',depth-1) .. "}"
+    local child = util:deepCopy(child)
+    local parents = {
+        __index = function(_, key)
+            for i = 1, #parents do
+                local parent = parents[i]
+                if parent[key] then
+                    return parent[key]
                 end
             end
-
-            cur_index = cur_index + 1
         end
-
-        if (size == 0) then
-            output_str = output_str .. "\n" .. string.rep('\t',depth-1) .. "}"
-        end
-
-        if (#stack > 0) then
-            tbl = stack[#stack]
-            stack[#stack] = nil
-            depth = cache[tbl] == nil and depth + 1 or depth - 1
-        else
-            break
-        end
-    end
-
-    -- This is necessary for working with HUGE tables otherwise we run out of memory using concat on huge strings
-    table.insert(output,output_str)
-    output_str = table.concat(output)
-
-    local tableEmpty = true
-
-    for _ in pairs(tbl) do
-        tableEmpty = false
-        break
-    end
-
-    if tableEmpty then
-        output_str = tableName.." = {}"
-    end
-
-    return output_str
+    }
+    setmetatable(child, parents)
+    return child
 end
 
---[[ return a boolean if a string is empty
-- @param #string str
-- @return #boolean [true if string is empty]
-]]
-function string.empty(str)
-    if str == "" then
-        return true
-    end
-    return false
-end
-
-function util:fileExist(pathToFile)
-    if lfs.attributes(lfs.writedir() .. pathToFile) then
-        return true
-    end
-    return false
-end
-
---[[ write a table to a lua file inside Saved Games/DCS/
-- @param #string file
-- @param #table _table
-- @param #boolean overwrite [overwrites the file with the new table]
-]]
-function util:tableSave(path, fileName, _table, overwrite)
-    if overwrite then
-        io.open(lfs.writedir() .. path .."\\" .. fileName .. ".lua", "w"):close()
-    end
-    local File = io.open(lfs.writedir() .. path.. "\\" .. fileName ..".lua", "all")
-    File:write(util:tableWriteStr(fileName, _table))
-    File:close()
-end
-
---[[ load a file from inside Saved Games/DCS/
-- @param #string file
-]]
-function util:loadFile(file)
-    loadfile(lfs.writedir() .. file)()
-end
-
---[[ round number to a specific decimal place
-- @param #number num
-- @param #number idp
-- @return #number roundedNum
-]]
-function util:round(num, idp)
-    local mult = 10^(idp or 0)
-    local roundedNum = math.floor(num * mult + 0.5) / mult
-    return roundedNum
-end
-
---[[ returns the point projected from the passed point at the passed distance along a given angle
-- @param #table point
-- @param #number dist
-- @param #number theta
-- @return #table newPoint
-]]
-function util:projectPoint(point, dist, theta)
+function util:projectPoint(point, distance, theta)
     local newPoint = {}
     if point.z then
-        newPoint.z = util:round(math.sin(theta) * dist + point.z, 3)
+        newPoint.z = util:round(math.sin(theta) * distance + point.z, 3)
         newPoint.y = util:deepCopy(point.y)
     else
-        newPoint.y = util:round(math.sin(theta) * dist + point.y, 3)
+        newPoint.y = util:round(math.sin(theta) * distance + point.y, 3)
     end
-    newPoint.x = util:round(math.cos(theta) * dist + point.x, 3)
     return newPoint
 end
 
---[[ return the 2D distance between two points in meters
-- @param #table fromVec3
-- @param #table toVec3
-- @return #number distance
-]]
-function util:getDistance(fromVec3, toVec3)
-    local dx = toVec3.x - fromVec3.x
-    local dy = toVec3.z - fromVec3.z
-    local distance = math.sqrt(dx * dx + dy * dy)
-    return distance
+function util:get2DDistance(fromVec3, toVec3)
+    local distanceX = toVec3.x - fromVec3.x
+    local distanceY = toVec3.z - fromVec3.z
+    return math.sqrt(distanceX * distanceX + distanceY * distanceY)
 end
 
---[[ return the velocity of a unit in meters per second
-- @param DCS#Unit [the DCS Unit Object to return the velocity for]
-- @return #number velocityMPS
-]]
-function util:getVelocityMPS(unit)
-    local velocityVec3 = unit:getVelocity()
-    local velocityMPS = (velocityVec3.x^2 + velocityVec3.y^2 + velocityVec3.z^2)^0.5
-    return velocityMPS
+function util:velocityToMPS(velocityVec3)
+    return (velocityVec3.x^2 + velocityVec3.y^2 + velocityVec3.z^2)^0.5
 end
 
---[[ return the velocity of a unit in kilometers per hour
-- @param DCS#Unit [the DCS Unit Object to return the velocity for]
-- @return #number velocityKMH
-]]
-function util:getVelocityKMH(unit)
-    local velocityMPS = util:getVelocityMPS(unit)
-    local velocityKMH = velocityMPS * 3.6
-    return velocityKMH
+function util:velocityToKMH(velocityVec3)
+    return self:velocityToMPS(velocityVec3) * 3.6
 end
 
---[[ return the velocity of a unit in miles per hour
-- @param DCS#Unit [the DCS Unit Object to return the velocity for]
-- @return #number velocityMPH
-]]
-function util:getVelocityMPH(unit)
-    local velocityMPS = util:getVelocityMPS(unit)
-    local velocityMPH = velocityMPS * 2.237
-    return velocityMPH
+function util:velocityToMPH(velocityVec3)
+    return self:velocityToMPS(velocityVec3) * 2.237
 end
 
---[[ returns free (available) parking spot data from an airbase including the parking spot ID & vec3 point
-- @param #util self
-- @param #string airbaseName [the airbase name to get parking spots from]
-- @param #array parkingSpots [the parking spots to check for]
-- @return #array freeParking [the free parking spots]
+--[[
+
+@class #logger
+
+@authors Wizard
+
+@description
+logger module for mission scripting environemt + hook environment
+
+@features
+- log levels
+- custom log files
+
+@created May 10, 2022
+
 ]]
-function util:getParkingData(airbaseName, parkingSpots)
-    if Airbase.getByName(airbaseName) then
-        local freeParking = {}
-        local airbase = Airbase.getByName(airbaseName)
-        for _, parkingData in pairs(Airbase.getParking(airbase)) do
-            for _, parkingSpot in pairs(parkingSpots) do
-                if not parkingData.TO_AC then
-                    if parkingData.Term_Index == parkingSpot then
-                        freeParking[#freeParking+1] = {
-                            ["termIndex"] = parkingSpot,
-                            ["termVec3"] = parkingData.vTerminalPos
-                        }
-                    end
-                end
+
+logger = {
+    ["openmode"] = "a",
+    ["datetime"] = "%Y-%m-%d %H:%M:%S",
+    ["level"] = 6,
+}
+
+logger.enum  = {
+    ["none"]    = 0,
+    ["alert"]   = 1,
+    ["error"]   = 2,
+    ["warning"] = 3,
+    ["info"]    = 4,
+    ["debug"]   = 5,
+    ["trace"]   = 6
+}
+
+logger.callbacks = {
+    {["method"] = "alert",   ["enum"] = "ALERT"},
+    {["method"] = "error",   ["enum"] = "ERROR"},
+    {["method"] = "warning", ["enum"] = "WARNING"},
+    {["method"] = "info",    ["enum"] = "INFO"},
+    {["method"] = "debug",   ["enum"] = "DEBUG"},
+    {["method"] = "trace",   ["enum"] = "TRACE"},
+}
+
+do
+    local logwrite = log.write
+    local format = string.format
+    local osdate
+    if os then osdate = os.date end
+    for i, callback in ipairs(logger.callbacks) do
+        logger[callback.method] = function(self, message, ...)
+            if self.level < i then
+                return
             end
-        end
-        return freeParking
-    end
-end
-
---[[ mark all the parking spots for an airbase
-- @param #string airbaseName [the airbase to mark the parking spots for
-- @return none
-]]
-function util:markParkingSpots(airbaseName)
-    if Airbase.getByName(airbaseName) then
-        local airbase = Airbase.getByName(airbaseName)
-        for parkingId, parkingData in pairs(Airbase.getParking(airbase)) do
-            local spotOpen
-            if parkingData.TO_AC == false then
-                spotOpen = "true"
-            else
-                spotOpen = "false"
+            local logMessage = format(message, ...)
+            if self.file then
+                local fullMessage = format("%s %s\t%s: %s\n", osdate(self.datetime), callback.enum, self.source, logMessage)
+                self.file:write(fullMessage)
+                return
             end
-            trigger.action.markToAll(parkingId, string.format("Term_Index = %d | Open = %s", parkingData.Term_Index, spotOpen), parkingData.vTerminalPos)
+            logwrite(self.source, log[callback.enum], logMessage)
         end
     end
+end
+
+function logger:new(source, level, file, openmode, datetime)
+    local self = setmetatable({}, {__index = logger})
+    self.source = source
+    if type(level) == "number" then self.level = level end
+    if type(level) == "string" then self.level = self.enum[level] end
+    if file then
+        if not openmode then openmode = logger.openmode end
+        self.file = assert(io.open(file, openmode))
+    end
+    if datetime then self.datetime = datetime end
+    return self
+end
+
+function logger:setSource(source)
+    self.source = source
+    return self
+end
+
+function logger:setLevel(level)
+    if type(level) == "number" then self.level = level end
+    if type(level) == "string" then self.level = self.enum[level] end
+    return self
+end
+
+function logger:setFile(file, openmode)
+    if self.file then self.file:close() end
+    if not openmode then openmode = logger.openmode end
+    self.file = assert(io.open(file, openmode))
+    return self
+end
+
+function logger:setDateTime(datetime)
+    self.datetime = datetime
+    return self
+end
+
+--[[
+
+@class #message
+
+@authors Wizard
+
+@description
+in game messaging functions
+
+@features
+- message to all
+- message to red
+- message to blue
+- message to group
+- message to unit
+- message to country
+
+@created May, 21, 2022
+
+]]
+
+message = {}
+
+function message:new(msg, ...)
+    local self = util:inheritParent(self, message)
+    self.message = string.format(msg, ...)
+    return self
+end
+
+function message:toAll(time, clearview)
+    trigger.action.outText(self.message, time, clearview)
+end
+
+function message:toRed(time, clearview)
+    trigger.action.outTextForCoalition(1, self.message, time, clearview)
+end
+
+function message:toBlue(time, clearview)
+    trigger.action.outTextForCoalition(2, self.message, time, clearview)
+end
+
+function message:toGroup(groupId, time, clearview)
+    trigger.action.outTextForGroup(groupId, self.message, time, clearview)
+end
+
+function message:toUnit(unitId, time, clearview)
+    trigger.action.outTextForUnit(unitId, self.message, time, clearview)
+end
+
+function message:toCountry(countryId, time, clearview)
+    trigger.action.outTextForCountry(countryId, self.message, time, clearview)
+end
+
+--[[
+
+@class #scheduler
+
+@authors Wizard
+
+@description
+schedule functions dynamically at a given time in the mission
+
+@features
+- scheduled functions
+- removal of scheduled functions
+
+@created May, 21, 2022
+
+]]
+
+scheduler = {}
+
+function scheduler:new(func, args, time)
+    local self = util:inheritParent(self, scheduler)
+    self.functionId = timer.scheduleFunction(func, args, time)
+    return self
+end
+
+function scheduler:remove(functionId)
+    if functionId then
+        timer.removeFunction(functionId)
+    else
+        if self.functionId then
+            self.functionId = timer.removeFunction(self.functionId)
+        end
+    end
+    return self
 end
 
 --[[
@@ -1032,7 +759,7 @@ fsm = {}
 - @return #fsm
 ]]
 function fsm:new()
-    local self = util:inherit(self, fsm)
+    local self = util:inheritParent(self, fsm)
     self.options = {}
     self.options.subs = {}
     self.current = 'none'
@@ -1263,7 +990,7 @@ function fsm:callHandler(step, trigger, params, EventName)
         self._EventSchedules[EventName] = nil
         -- Error handler.
         local ErrorHandler = function(errmsg)
-            env.info("Error in SCHEDULER function:" .. errmsg)
+            ssf:error("fsm:callHandler(): Error in scheduled function:" .. errmsg)
             return errmsg
         end
         local Result, Value = xpcall(function() return self[handler](self, unpack(params)) end, ErrorHandler)
@@ -1356,11 +1083,11 @@ function fsm:delayedTransition(EventName)
             if DelaySeconds < 0 then -- Only call the event ONCE!
                 DelaySeconds = math.abs(DelaySeconds)
                 if not self._EventSchedules[EventName] then
-                    CallID = util:scheduleFunction(fsm._handler, {self, EventName, ...}, DelaySeconds or 1)
+                    CallID = scheduler:new(fsm._handler, {self, EventName, ...}, DelaySeconds or 1)
                     self._EventSchedules[EventName] = CallID
                 end
             else
-                CallID = util:scheduleFunction(fsm._handler, {self, EventName, ...}, DelaySeconds or 1)
+                CallID = scheduler:new(fsm._handler, {self, EventName, ...}, DelaySeconds or 1)
             end
         else
             error("fsm: An asynchronous event trigger requires a DelaySeconds parameter!!! This can be positive or negative! Sorry, but will not process this.")
@@ -1502,14 +1229,13 @@ Finite State Machine based event handling for DCS World Events
 ]]
 
 handler = {}
-handler.debug = true
 
 --[[ create a new instance of a handler object
 - @param #handler self
 - @return #handler self
 ]]
 function handler:new()
-    local self = util:inherit(self, fsm:new())
+    local self = util:inheritParent(self, fsm:new())
     self.events = {}
     world.addEventHandler(self)
     return self
@@ -1522,7 +1248,7 @@ end
 - @param #groupName
 - @return #handler self
 ]]
-function handler:onGroupEvent(class, event, groupName)
+function handler:handleGroupEvent(class, event, groupName)
     if not self.events[event.id] then
         self.events[event.id] = {
             class = class,
@@ -1543,7 +1269,7 @@ end
 - @param #unitName
 - @return #handler self
 ]]
-function handler:onUnitEvent(class, event, unitName)
+function handler:handleUnitEvent(class, event, unitName)
     if not self.events[event.id] then
         self.events[event.id] = {
             class = class,
@@ -1569,7 +1295,6 @@ function handler:handleEvent(event)
             id = event.id
         }
         self:addTransition("*", event.name, "*")
-        --util:logInfo(self.debug, "event %s is now handled", event.name)
     end
     return self
 end
@@ -1582,7 +1307,6 @@ end
 function handler:unhandleEvent(event)
     if self.events[event.id] then
         self.events[event.id] = nil
-        --util:logInfo(self.debug, "event %s is now unhandled", event.text)
     end
     return self
 end
@@ -1658,7 +1382,7 @@ function handler:onEvent(event)
             -- check if the event is for a group
             if _event.group then
                     -- its for a group, now lets see if its for our group
-                if eventData.initGroupName == _event.class.groupName then
+                if eventData.initGroupName:find(_event.class.groupName) then
                     -- its for our group, now lets return the unit in that group to the onafter/onAfter methods for the requesting class
                     local class = _event.class -- the class that called the handler
                     local eventMethod = _event.event -- the fsm method
@@ -1666,7 +1390,7 @@ function handler:onEvent(event)
                 end
             elseif _event.unit then -- event is for a unit
                 -- lets check to see if it matches our unit name
-                if eventData.initUnitName == _event.unitName then
+                if eventData.initUnitName:find(_event.unitName) then
                     -- its for our unit, now lets return the eventData to the onafter/onAfter methods!
                     local class = _event.class -- the class that called the handler
                     local eventMethod = _event.event -- the fsm method
@@ -1680,7 +1404,7 @@ function handler:onEvent(event)
             end
         end
     end)
-    if not success then util:logError(self.debug, "ERROR IN onEvent : %s", tostring(err)) end
+    if not success then ssf:error("handler:onEvent(): ERROR IN onEvent : %s", tostring(err)) end
 end
 
 --[[
@@ -1715,7 +1439,6 @@ the template placed there.
 ]]
 
 birth = {}
-birth.debug = true
 birth.takeoff = {
     ["runway"] = {name = "Takeoff from runway",type = "TakeOff", action = "From Runway"},
     ["hot"] = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
@@ -1728,418 +1451,238 @@ birth.takeoff = {
 - @param #string groupName [the late activated template groups name]
 - @return #birth self
 ]]
+
 function birth:new(groupName)
-    if groupsByName[groupName] then
-        local self = util:inheritParents(self, {handler:new(), group})
-        self.templateName = groupName
-        self.groupName = groupName
-        self._template = util:deepCopy(groupsByName[groupName])
-        self.birthTemplate = util:deepCopy(self._template)
-        self.groupTemplate = nil
-        self.countryId = self.birthTemplate.countryId
-        self.category = self.birthTemplate.category
-        self.coalition = self.birthTemplate.coalition
-        self.keepNames = nil
-        self.birthCount = 0
-        self.limitEnabled = nil
-        self.activeGroupLimit = 0
-        self.scheduledBirth = nil
-        self.scheduleTime = nil
-        self.alias = nil
-        self.dcsBirthGroup = nil
+    if not groupsByName[groupName] then ssf:error("birth:new(): could not find %s in groupsByName", groupName) return end
+    local self = util:inheritParents(self, {handler:new(), group})
+    self.templateName = groupName
+    self.template = util:deepCopy(groupsByName[groupName])
+    self.groupTemplate = util:deepCopy(self.template)
+    self.countryId = self.groupTemplate.countryId
+    self.category = self.groupTemplate.category
+    self.coalition = self.groupTemplate.coalition
+    self.count = 0
 
-        self.activeGroups = {} -- every born group by name
-        self.bornGroups = {}
+    self.keepGroupName = nil
+    self.keepUnitNames = nil
+    self.alias = nil
+    self.groupLimit = nil
+    self.unitLimit = nil
+    self.groupName = nil
 
-        --[[removal from the template
-        self.birthTemplate.countryId = nil
-        self.birthTemplate.category = nil
-        self.birthTemplate.coalition = nil
-        ]]
-        return self
-    end
+    self.groupTemplate.countryId = nil
+    self.groupTemplate.category = nil
+    self.groupTemplate.coalition = nil
+
+    self.bornGroups = {}
+    self.bornUnits = {}
+
+    return self
 end
 
---[[ register the birth object to a specific event
-- @param #birth self
-- @param #enum event
-- return #birth self]]
 function birth:handleEvent(event)
-    self:onGroupEvent(self, event, self.groupName or self.alias)
+    ssf:debug("birth:handleEvent(): handling event %s", event.name)
+    self:handleGroupEvent(self, event, self.templateName or self.alias)
     return self
 end
 
---[[ keep the group and unit template names for the birth object
-- @param #birth self
-- @param #boolean enabled [if true, keep the late activated template groups name, default: false]
-- @return #birth self
-]]
-function birth:keepTemplateName(enabled)
-    if enabled then
-        self.keepNames = true
-        self.groupName = self.templateName
-    else
-        self.keepNames = false
-    end
+function birth:keepName(keepGroupName, keepUnitNames)
+    self.keepGroupName = keepGroupName
+    self.keepUnitNames = keepUnitNames
     return self
 end
 
---[[ set the group name alias for a birth object
-- units will have a "-" after the group name followed by each units Id as seen in game
-- eg:
-a set alias: "CAP F-16"
-units followed: CAP F-16-1", "CAP F-16-2" etc
-- @param #birth self
-- @param #string alias [the new group name of the birth object]
-- @return #birth self
-]]
 function birth:setAlias(alias)
     self.alias = alias
     return self
 end
 
---[[ set a limit for how many groups can be alive at any given time
-- @param #birth self
-- @param #number maxLimit [the maximum amount of groups that can be alive at any given time]
-- @return #birth self
-]]
-function birth:limitActiveGroups(maxLimit)
-    self.limitEnabled = true
-    self.activeGroupLimit = maxLimit
+function birth:setLimit(groupLimit, unitLimit)
+    self.groupLimit = groupLimit
+    self.unitLimit = unitLimit
     return self
 end
 
---[[ set the payload for a specifc unit within the birth group
-- note: this function can only be used before a birth object has been born. if it happens to be reborn the payload will be loaded at that point.
-- @param #birth self
-- @param #number unitId [the unitId within the group to set the payload for]
-- @param #string unitName [the unit name to obtain the payload from]
-- @return #birth self
-]]
 function birth:setPayload(unitId, unitName)
-    local _unit = unit:getByName(unitName)
-    if _unit ~= nil then
-        local payload = _unit:getPayload()
-        self.birthTemplate.units[unitId].payload = payload
-    end
+    if not payloadsByUnitName[unitName] then ssf:error("birth:setPayload(): could not find %s in payloadsByUnitName", unitName) return end
+    local unitPayload = util:deepCopy(payloadsByUnitName[unitName])
+    self.template.units[unitId].payload = unitPayload
     return self
 end
 
---[[ set the livery for a specifc unit within the birth group
-- note: this function can only be used before a birth object has been born. if it happens to be reborn the livery will be loaded at that point.
-- @param #birth self
-- @param #number unitId [the unitId within the group to set the livery for]
-- @param #string unitName [the unit name to obtain the livery from]
-- @return #birth self
-]]
 function birth:setLivery(unitId, unitName)
-    local _unit = unit:getByName(unitName)
-    if _unit ~= nil then
-        local livery = _unit:getLivery()
-        self.birthTemplate.units[unitId].livery_id = livery
-    end
+    if not liverysByUnitName[unitName] then ssf:error("birth:setPayload(): could not find %s in liverysByUnitName", unitName) return end
+    local unitLivery = util:deepCopy(liverysByUnitName[unitName])
+    self.template.units[unitId].livery_id = unitLivery
     return self
 end
 
---[[ set the country of the birth group
-- @param #birth self
-- @param #string countryName
-]]
 function birth:setCountry(countryName)
-    if country.id.countryName then
-        self.countryId = country.id.countryName
-    end
+    if not country.id[countryName] then ssf:error("birth:setCountry(): couldnt find country.id.%s", countryName) return end
+    self.countryId = country.id[countryName]
     return self
 end
 
---[[ set a units heading in degrees
-- @param #birth self
-- @param #number unitId [the unitId within the group to set the heading for]
-- @param #number heading [the heading to set in degrees]
-- @return #birth self
-]]
-function birth:setHeading(unitId, heading)
-    if self.birthTemplate.units[unitId] then
-        self.birthTemplate.units[unitId].heading = heading * math.pi/180
-    end
-    return self
-end
-
---[[ birth the object to the world from its orignal template
-- @param #birth self
-- @return #birth self
-]]
 function birth:birthToWorld()
-    self:_initializeGroup()
+    ssf:debug("birth:birthToWorld(): preparing template %s for birth", self.templateName)
+    self:_initialize()
     return self
 end
 
---[[ set the birth object to have a scheduled birth
-- @param #birth self
-- @param #number scheduleTime [the time in seconds for which a new group will be born]
-- @return #birth self
-]]
 function birth:birthScheduled(scheduleTime)
-    self.scheduledBirth = true
+    ssf:debug("birth:birthScheduled(): preparing template %s for birth on a scheduler", self.templateName)
     self.scheduleTime = scheduleTime
+    self:_initialize()
     return self
 end
 
---[[ rebirth the birth object immediatley
-- @param #birth self
-- @return #birth self
-]]
-function birth:rebirth()
-    self:birthToWorld()
-    return self
-end
-
---[[ birth the object from a vec3 point located on the map
-- @param #birth self
-- @param #table vec3 [table of vec3 points to be born at]
-- @return #birth self
-]]
 function birth:birthFromVec3(vec3, alt)
-    local _alt
+    ssf:debug("birth:birthFromVec3(): preparing template %s for birth from a vec3", self.templateName)
     if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
-        _alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
+        alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
     elseif self.category == Group.Category.SHIP then
-        _alt = 0
-    elseif self.category == Group.Category.AIRPLANE then
-        _alt = alt
+        alt = 0
+    elseif self.category == Group.Category.AIRPLANE or self.category == Group.Category.HELICOPTER then
+        if not alt then
+            ssf:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
+            return self
+        end
+        alt = alt
     end
-    for unitId, unitData in pairs(self.birthTemplate.units) do
+
+    for _, unitData in pairs(self.groupTemplate.units) do
         local sX = unitData.x or 0
         local sY = unitData.y  or 0
-        local bX = self.birthTemplate.route.points[1].x
-        local bY = self.birthTemplate.route.points[1].y
+        local bX = self.groupTemplate.route.points[1].x
+        local bY = self.groupTemplate.route.points[1].y
         local tX = vec3.x + (sX - bX)
         local tY = vec3.z + (sY - bY)
-        if alt then
-            unitData.alt = _alt
-        else
-            unitData.alt = tY
-        end
+        unitData.alt = alt
         unitData.x = tX
         unitData.y = tY
     end
-    self.birthTemplate.route.points[1].alt = _alt
-    self.birthTemplate.route.points[1].x = vec3.x
-    self.birthTemplate.route.points[1].y = vec3.z
 
-    self:_initializeGroup()
+    self.groupTemplate.route.points[1].alt = alt
+    self.groupTemplate.route.points[1].x = vec3.x
+    self.groupTemplate.route.points[1].y = vec3.z
+
+    self:_initialize()
     return self
 end
 
---[[ birth the object from an airbase
-- this function can only be used on aircraft
-- @param #birth self
-- @param #string airbaseName [the airbase name to be born from]
-- @param #array parkingSpots [the parking spots to be born at]
-- @param #enum takeoffType [the takeoff type to be born with. options are: runway, hot, cold, air]
-- @return #birth self
-]]
-function birth:birthFromAirbase(airbaseName, parkingSpots, takeoffType)
-    local noSetSpots = false
-    local birthAirbase = Airbase.getByName(airbaseName)
-    if birthAirbase ~= nil then
-        local birthAirbaseCategory = Airbase.getDesc(birthAirbase).category
-        local birthAirbaseVec3 = Airbase.getPoint(birthAirbase)
-        if type(parkingSpots) ~= "table" and type(parkingSpots) == "number" then
-            parkingSpots = {parkingSpots}
-        elseif type(parkingSpots) == "nil" or type(parkingSpots) == "boolean" then
-            noSetSpots = true
-        end
-        if not noSetSpots then
-            if parkingSpots and birthAirbaseCategory == 2 then
-                util:logError(self.debug, "%s is unable to set parking spots on carrier, this is not an available option", self.templateName)
-                return
-            end
-            local parkingData = util:getParkingData(airbaseName, parkingSpots)
-            if #parkingSpots < #self.birthTemplate.units then
-                util:logError(self.debug, "%s does not have enough given parking spots to be born from an airbase", self.templateName)
-                return
+function birth:_updateActiveGroups()
+    ssf:debug("birth:_updateActiveGroups(): updating active groups for template %s", self.templateName)
+    self.activeGroups = {}
+    for _, groupName in pairs(self.bornGroups) do
+        if group:getByName(groupName) then
+            if group:getByName(groupName):isAlive() then
+                self.activeGroups[#self.activeGroups+1] = groupName
             else
-                if #parkingData == #parkingSpots then
-                    local birthWaypoint = self.birthTemplate.route.points[1]
-                    birthWaypoint.type = takeoffType.type
-                    birthWaypoint.action = takeoffType.action
-                    birthWaypoint.x = parkingData[1].termVec3.x
-                    birthWaypoint.y = parkingData[1].termVec3.z
-                    if birthAirbaseCategory == 0 then -- airbases
-                        birthWaypoint.airdromeId = Airbase.getID(birthAirbase)
-                    elseif birthAirbaseCategory == 2 then -- ships
-                        birthWaypoint.helipadId = Airbase.getID(birthAirbase)
-                    end
-                    for id = 1, #self.birthTemplate.units do
-                        self.birthTemplate.units[id].parking = parkingData[id].termIndex
-                        self.birthTemplate.units[id].x = parkingData[id].termVec3.x
-                        self.birthTemplate.units[id].y = parkingData[id].termVec3.z
-                    end
-                    --[[
-                    if #self.birthTemplate.route.points == 1 then
-                        self.birthTemplate.route.points[2] = util:deepCopy(self._template)
-                        self.birthTemplate.route.points[2].x = birthAirbaseVec3.x
-                        self.birthTemplate.route.points[2].y = birthAirbaseVec3.z
-                    end
-                    ]]
-                    self:_initializeGroup()
-
-                    return self
-                else
-                    util:logError(self.debug, "%s could not find enough valid/open parking spots", self.templateName)
-                end
+                ssf:debug("birth:_updateActiveGroups(): group %s not alive", groupName)
             end
         else
-            local birthWaypoint = self.birthTemplate.route.points[1]
-            birthWaypoint.type = takeoffType.type
-            birthWaypoint.action = takeoffType.action
-            birthWaypoint.x = birthAirbaseVec3.x
-            birthWaypoint.y = birthAirbaseVec3.z
-            if birthAirbaseCategory == 0 then -- airbases
-                birthWaypoint.airdromeId = Airbase.getID(birthAirbase)
-            elseif birthAirbaseCategory == 2 then -- ships
-                birthWaypoint.helipadId = Airbase.getID(birthAirbase)
-                birthWaypoint.helipadId = Airbase.getID(birthAirbase)
-            end
-            --[[
-            if #self.birthTemplate.route.points == 1 then
-                self.birthTemplate.route.points[2] = util:deepCopy(self._template)
-                self.birthTemplate.route.points[2].x = birthAirbaseVec3.x
-                self.birthTemplate.route.points[2].y = birthAirbaseVec3.z + 1000
-                self.birthTemplate.route.points[2].alt = 5000
-            end
+            ssf:debug("birth:_updateActiveGroups(): cant find group %s in database?", groupName)
+        end
+    end
+    return self
+end
 
-            for id = 1, #self.birthTemplate.units do
-                self.birthTemplate.units[id].parking = parkingData[id].termIndex
-                --self.birthTemplate.units[id].x = parkingData[id].termVec3.x
-                --self.birthTemplate.units[id].y = parkingData[id].termVec3.z
+function birth:_updateActiveUnits()
+    ssf:debug("birth:_updateActiveUnits(): updating active units for template %s", self.templateName)
+    self.activeUnits = {}
+    for _, unitName in pairs(self.bornUnits) do
+        if unit:getByName(unitName) then
+            if unit:getByName(unitName):isAlive() then
+                self.activeUnits[#self.activeUnits+1] = unitName
+            else
+                ssf:debug("birth:_updateActiveUnits(): unit %s not alive", unitName)
             end
-            ]]
-            self:_initializeGroup()
+        else
+            ssf:debug("birth:_updateActiveUnits(): cant find unit %s in database?", unitName)
+        end
+    end
+    return self
+end
 
+function birth:_witihinGroupLimit()
+    ssf:debug("birth:_witihinGroupLimit(): comparing active groups against the groupLimit for template %s", self.templateName)
+    self:_updateActiveGroups()
+    if #self.activeGroups < self.groupLimit then
+        ssf:debug("birth:_witihinGroupLimit(): returning true, template %s has less active groups than the groupLimit", self.templateName)
+        return true
+    end
+    ssf:debug("birth:_witihinGroupLimit(): returning false, template %s active groups are greater than or equal to the groupLimit", self.templateName)
+    return false
+end
+
+function birth:_withinUnitLimit()
+    ssf:debug("birth:_withinUnitLimit(): comparing active units against the unitLimit for template %s", self.templateName)
+    self:_updateActiveUnits()
+    if #self.activeUnits + #self.groupTemplate.units <= self.unitLimit then
+        ssf:debug("birth:_withinUnitLimit(): returning true, template %s has less active units than the unitLimit", self.templateName)
+        return true
+    end
+    ssf:debug("birth:_withinUnitLimit(): returning false, template %s active units are greater than or equal to the unitLimit", self.templateName)
+    return false
+end
+
+function birth:_initialize()
+    ssf:debug("birth:_initialize(): initializing template %s", self.templateName)
+    if not self.groupLimit and not self.unitLimit then
+        -- not group limit and not unit limit
+        self:_addGroup()
+        return self
+    elseif self.groupLimit and self.unitLimit then
+        if self:_witihinGroupLimit() and self:_withinUnitLimit() then
+            self:_addGroup()
+            return self
+        end
+    elseif self.groupLimit and not self.unitLimit then
+        if self:_witihinGroupLimit() then
+            self:_addGroup()
+            return self
+        end
+    elseif not self.groupLimit and self.unitLimit then
+        if self:_withinUnitLimit() then
+            self:_addGroup()
             return self
         end
     end
 end
 
---[[ birth the object from a circle or quad trigger zone
-- @param #birth self
-- @param #string zoneName [the trigger zone to be born in]
-- @param #number alt [the trigger zone to be born at]
-- @return #birth self
-]]
-function birth:birthFromZone(zoneName, alt)
-    if zonesByName[zoneName] then
-        local _alt
-        local vec3 = trigger.misc.getZone(zoneName).point
-        if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
-            _alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
-        elseif self.category == Group.Category.SHIP then
-            _alt = 0
-        elseif self.category == Group.Category.AIRPLANE then
-            _alt = alt
-        end
-        for _, unitData in pairs(self.birthTemplate.units) do
-            local sX = unitData.x or 0
-            local sY = unitData.y  or 0
-            local bX = self.birthTemplate.route.points[1].x
-            local bY = self.birthTemplate.route.points[1].y
-            local tX = vec3.x + (sX - bX)
-            local tY = vec3.z + (sY - bY)
-            if alt then
-                unitData.alt = _alt
-            else
-                unitData.alt = tY
-            end
-            unitData.x = tX
-            unitData.y = tY
-        end
-        self.birthTemplate.route.points[1].alt = _alt
-        self.birthTemplate.route.points[1].x = vec3.x
-        self.birthTemplate.route.points[1].y = vec3.z
-
-        self:_initializeGroup()
-
-        return self
-    end
-end
-
---[[ internal function to initialize the group for birth
-- @param #birth self
-- @return #birth self
-]]
-function birth:_initializeGroup()
-    self:_updateActiveGroups()
-    if self.limitEnabled then
-        if #self.activeGroups < self.activeGroupLimit then
-            self:_addGroup()
-        end
-    else
-        self:_addGroup()
-    end
-    return self
-end
-
---[[ internal function to add a group into the world
-- @param #birth self
-- @return #birth self
-]]
 function birth:_addGroup()
-    -- remove any existing scheduler
-    if self.schedulerId then
-        self.schedulerId = nil
-    end
-    -- resolve naming convetion for the group
-    if not self.keepNames then
-        if type(self.alias) ~= "string" then
-            self.groupName = self.templateName.." #"..self.birthCount + 1
-        else
+    ssf:debug("birth:_addGroup(): adding template %s into the world", self.templateName)
+    if self.schedulerId then self.schedulerId = nil end
+    if not self.keepGroupName then
+        if self.alias then
             self.groupName = self.alias
-        end
-        self.birthTemplate.name = self.groupName
-        for unitId = 1, #self.birthTemplate.units do
-            self.birthTemplate.units[unitId].name = self.birthTemplate.name.."-"..unitId
+            self.groupTemplate.name = self.groupName
+        else
+            self.groupName = self.template.name.." #"..self.count + 1
+            self.groupTemplate.name = self.groupName
         end
     end
-
-    -- send the birth object into the world
-    self.dcsBirthGroup = coalition.addGroup(self.countryId, self.category, self.birthTemplate)
-    self.birthCount = self.birthCount + 1
+    if not self.keepUnitNames then
+        for unitId = 1, #self.groupTemplate.units do
+            self.groupTemplate.units[unitId].name = self.groupTemplate.name.."-"..unitId
+        end
+    end
+    coalition.addGroup(self.countryId, self.category, self.groupTemplate)
+    self.count = self.count + 1
     self.bornGroups[#self.bornGroups+1] = self.groupName
-    --util:logInfo(self.debug, "%s has been born into the world", self.groupName)
-    if self.scheduledBirth then
-        util:scheduleFunction(birth._initializeGroup, self, self.scheduleTime)
-    end
-
-    -- add this new group to the groupsByName db
-    groupsByName[self.birthTemplate.name] = util:deepCopy(self.birthTemplate)
-    self.groupTemplate = util:deepCopy(self.birthTemplate)
-    -- add the units from the new group to unitsByName and payloadsByUnitName db's
-    for unitId = 1, #self.birthTemplate.units do
-        local unit = self.birthTemplate.units[unitId]
-        unit.groupName = self.birthTemplate.name
-        unitsByName[unit.name] = util:deepCopy(unit)
-        payloadsByUnitName[unit.name] = util:deepCopy(unit.payload)
-    end
-
-    return self
-end
-
---[[ interal function to update the currently existing born groups
-- @param #birth self
-- @return #birth self
-]]
-function birth:_updateActiveGroups()
-    self.activeGroups = {}
-    for _, groupName in pairs(self.bornGroups) do
-        local group = group:getByName(groupName)
-        if group then
-            if group:isAlive() then
-                self.activeGroups[#self.activeGroups+1] = groupName
-            end
+    groupsByName[self.groupTemplate.name] = util:deepCopy(self.groupTemplate)
+    for _, unitData in pairs(self.groupTemplate.units) do
+        unitsByName[unitData.name] = util:deepCopy(unitData)
+        if unitData.payload then
+            payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
+            self.bornUnits[#self.bornUnits+1] = unitData.name
         end
     end
+    if self.scheduleTime then
+        local scheduleBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
+        self.schedulerId = scheduleBirth.functionId
+    end
+    ssf:debug("birth:_addGroup(): %s has been born into the world", self.groupName)
     return self
 end
 
@@ -2159,14 +1702,13 @@ search for a collection of objects to call functions on as a whole. you must use
 ]]
 
 search = {}
-search.debug = true
 
 --[[ create a new instance of a search object
 - @param #search self
 - @return #search self
 ]]
 function search:new()
-    local self = util:inherit(self, handler:new())
+    local self = util:inheritParent(self, handler:new())
     self.database = nil
     self.filters = {}
     return self
@@ -2205,7 +1747,6 @@ end
 function search:searchOnce()
     local objects = {}
     local filterHit
-    local st = os.clock()
     for objectName, objectData in pairs(self.database) do
         filterHit = true
         if self.subString then
@@ -2232,15 +1773,13 @@ function search:searchOnce()
             objects[#objects+1] = group:getByName(objectName)
         end
     end
-    local et = os.clock() - st
-    util:logInfo(true, "searchOnce iteration took %0.4f seconds", et)
     return objects
 end
 
 searchGroup = {}
 
 function searchGroup:new()
-    local self = util:inherit(self, search:new())
+    local self = util:inheritParent(self, search:new())
     self.database = util:deepCopy(groupsByName)
     return self
 end
@@ -2248,7 +1787,7 @@ end
 searchUnit = {}
 
 function searchUnit:new()
-    local self = util:inherit(self, search:new())
+    local self = util:inheritParent(self, search:new())
     self.database = util:deepCopy(unitsByName)
     return self
 end
@@ -2256,7 +1795,7 @@ end
 searchStatic = {}
 
 function searchStatic:new()
-    local self = util:inherit(self, search:new())
+    local self = util:inheritParent(self, search:new())
     self.database = util:deepCopy(staticsByName)
     return self
 end
@@ -2264,7 +1803,7 @@ end
 searchAirbase = {}
 
 function searchAirbase:new()
-    local self = util:inherit(self, search:new())
+    local self = util:inheritParent(self, search:new())
     self.database = util:deepCopy(airbasesByName)
     return self
 end
@@ -2287,7 +1826,7 @@ zone = {}
 
 function zone:getByName(zoneName)
     if zonesByName[zoneName] then
-        local self = util:inherit(self, fsm:new())
+        local self = util:inheritParent(self, fsm:new())
         self.zoneName = zoneName
         self.zoneData = util:deepCopy(zonesByName[zoneName])
         return self
@@ -2339,7 +1878,7 @@ end
 
 function zone:inZone(vec3)
     local zoneVec3 = self:getVec3()
-    if ((vec3.x - zoneVec3.x)^2 + (vec3.z - zoneVec3.z)^2)^0.5 >= self:getRadius() then
+    if ((vec3.x - zoneVec3.x)^2 + (vec3.z - zoneVec3.z)^2)^0.5 <= self.zoneData.radius then
         return true
     end
     return false
@@ -2365,7 +1904,7 @@ function zone:draw(coalition, lineColor, fillColor, lineType, readOnly, message)
         quad[#quad+1] = lineType
         quad[#quad+1] = readOnly or false
         quad[#quad+1] = message or nil
-        trigger.action.quadToAll(table.unpack(quad))
+        trigger.action.quadToAll(unpack(quad))
     else
         local circle = {}
         local center = self:getVec3()
@@ -2378,7 +1917,7 @@ function zone:draw(coalition, lineColor, fillColor, lineType, readOnly, message)
         circle[#circle+1] = lineType
         circle[#circle+1] = readOnly or false
         circle[#circle+1] = message or nil
-        trigger.action.circleToAll(table.unpack(circle))
+        trigger.action.circleToAll(unpack(circle))
     end
     return self
 end
@@ -2389,612 +1928,6 @@ function zone:undraw()
         self.drawingId = nil
     end
     return self
-end
-
---
---
--- ** classes : ai **
---
---
-
---[[
-
-@class #cap
-
-@authors Wizard
-
-@description
-the cap class provides combat air patrol behaviors for a #birth group and its units. utilizing finite state machine events the cap object
-will be automated to pushed through a series of states that help with tasking it to start its patrol, engage targets, go back to patrolling
-after killing detected targets, return to base after reaching its RTB fuel threshold, etc. all of these events can also be called upon by
-users to help with the mission enhancements.
-
-@features
-- automated deployment
-- automated engagements
-- automated RTB
-- automated redeployment
-- unique home airbase
-- unique parking spots at home airbase for hot and cold starts
-- unique takeoff for hot, cold, runway, and air starts at home airbase
-- unique patrol area (zone or airbase)
-- dynamic patrolling altitudes
-- dynamic patrolling speeds
-- dynamic patrol ranges (distance from center of patrol)
-- dynamic engage altitudes
-- dynamic enage speeds
-- dynamic engage ranges (distance from cap object)
-- unique patrol shapes
-- unique detection types
-- inherited methods from #birth and #handler
-
-@created Feb 5, 2022
-
-]]
-
-cap = {}
-cap.debug = true
-
--- patrol shapes for how the patrol is created
-cap.patrolShapes = {
-    ["triangle"] = {["points"] = 3, ["degrees"] = 120},
-    ["diamond"] = {["points"] = 4, ["degrees"] = 90},
-    ["pentagon"] = {["points"] = 5, ["degrees"] = 72},
-    ["hexaxagon"] = {["points"] = 6, ["degrees"] = 60},
-    ["octogon"] = {["points"] = 8,  ["degrees"] = 45},
-    ["star"] = {["points"] = 5, ["degrees"] = 144},
-}
-
--- detection types for how the cap object finds targets
-cap.detectionTypes = {
-    ["visual"] = 1,
-    ["optic"]  = 2,
-    ["radar"]  = 4,
-    ["irst"]   = 8,
-    ["rwr"]    = 16,
-    ["datalink"]  = 32
-}
-
---[[ create a new instance of a cap object
-- @param #cap self
-- @param #string capName [the name of the cap object]
-- @param #string birthGroup [the birth group object to be controlled as a cap object]
-- @return #cap self
-]]
-function cap:new(capName, birthGroup)
-    local self = util:inherit(self, birthGroup)
-    self.capName = capName
-    self.detection = {}
-    self.airbaseName = nil
-    self.parkingSpots = nil
-    self.patrolName = nil
-    self.patrolShape = nil
-    self.resources = nil
-    self.fuelThreshold = nil
-    self.healthThreshold = nil
-    self.ammoThreshold = nil
-    self.minPatrolAlt = nil
-    self.maxPatrolAlt = nil
-    self.minPatrolSpeed = nil
-    self.maxPatrolSpeed = nil
-    self.minPatrolRange = nil
-    self.maxPatrolRange = nil
-    self.minEngageAlt = nil
-    self.maxEngageAlt = nil
-    self.minEngageSpeed = nil
-    self.maxEngageSpeed = nil
-    self.minEngageRange = nil
-    self.maxEngageRange = nil
-    self.takeoff = nil
-    self.airstart = nil
-
-    self.rtb = false
-    self.attacking = false
-    self.patrolling = false
-    self.oldDilation = nil
-
-    self.detectedTargets = {}
-    self.engagedTargets = {}
-
-    self:handleEvent(event.takeoff)
-    self:handleEvent(event.land)
-    self:handleEvent(event.engineShutdown)
-
-    self:addTransition("*", "Start", "*")
-    self:addTransition("*", "Status", "*")
-    self:addTransition("*", "Deploy", "*")
-    self:addTransition("*", "TaskPatrol", "*")
-    self:addTransition("*", "AttackTargets", "*")
-    self:addTransition("*", "RefreshTargets", "*")
-    self:addTransition("*", "RTB", "*")
-
-    return self
-end
-
-function cap:handleEvent(event)
-    self:onGroupEvent(self, event, self.groupName)
-    return self
-end
-
---[[ set the detection types for how the cap object finds targets
-- note: you can only have up to 3 detection types per limit of DCS
-- @param #cap self
-- @param #enum type1 [detectionType eg: cap.detectionTypes.datalink]
-- @param #enum type2 [detectionType eg: cap.detectionTypes.rwr]
-- @param #enum type3 [detectionType eg: cap.detectionTypes.radar]
-- @return #cap self
-]]
-function cap:setDetection(type1, type2, type3)
-    if type1 then
-        self.detection[1] = type1
-    end
-    if type2 then
-        self.detection[2] = type2
-    end
-    if type3 then
-        self.detection[3] = type3
-    end
-    return self
-end
-
---[[ set the airbase that the cap object will depart from
-- @param #cap self
-- @return #cap self
-]]
-function cap:setAirbase(airbaseName)
-    self.airbaseName = airbaseName
-    return self
-end
-
---[[ set the airbase that the cap object will depart from
-- @param #cap self
-- @return #cap self
-]]
-function cap:setParkingSpots(parkingSpots)
-    self.parkingSpots = parkingSpots
-end
-
---[[ set the cap object to patrol a airbase or trigger zone
-- @param #cap self
-- @param #string patrolName [the name of the airbase or trigger zone]
-- @param #enum patrolShape [the patrol shape, eg: cap.patrolShape.diamond]
-- @return #cap self
-]]
-function cap:setPatrol(patrolName, patrolShape)
-    self.patrolName = patrolName
-    self.patrolShape = util:deepCopy(patrolShape)
-    return self
-end
-
---[[ set the amount of resources the cap object has available
-- note: upon deployment, the current resources will be subtracted by the amount of units born
-- 1 resource per unit landing will be given back
-- @param #cap self
-- @param #number resources [this is the amount of groups the cap object has]
-- @return #cap self
-]]
-function cap:setResources(resources)
-    self.resources = resources
-    return self
-end
-
---[[ set the RTB fuel threshold for the cap object
-- @param #cap self
-- @param #number threshold [once the cap object reaches this combined fuel amount, they will RTB]
-- @return #cap self
-]]
-function cap:setFuelThreshold(threshold)
-    self.fuelThreshold = threshold
-    return self
-end
-
---[[ set the RTB health threshold for the cap object
-- @param #cap self
-- @param #number threshold [once the cap object reaches this combined health ammount, they will RTB]
-- @return #cap self
-]]
-function cap:setHealthThreshold(threshold)
-    self.healthThreshold = threshold
-    return self
-end
-
---[[ set the RTB ammo threshold for the cap object
-- @param #cap self
-- @param #number threshold [once the cap object reaches this combined ammo ammount, they will RTB]
-- @return #cap self
-]]
-function cap:setAmmoThreshold(threshold)
-    self.ammoThreshold = threshold
-    return self
-end
-
---[[ set the min and max patrol alt for the cap object
-- note: for each point in the patrol, a random alt between the min and max will be chosen to patrol from
-- @param #cap self
-- @param #number minAlt [the minimum alt in meters]
-- @param #number maxAlt [the maximum alt in meters]
-- @return #cap self
-]]
-function cap:setPatrolAlt(minAlt, maxAlt)
-    self.minPatrolAlt = minAlt
-    self.maxPatrolAlt = maxAlt
-    return self
-end
-
---[[ set the min and max patrol speed for the cap object
-- note: for each point in the patrol, a random speed between the min and max will be chosen to patrol at
-- @param #cap self
-- @param #number minSpeed [the minimum speed in meters]
-- @param #number maxSpeed [the maximum speed in meters]
-- @return #cap self
-]]
-function cap:setPatrolSpeed(minSpeed, maxSpeed)
-    self.minPatrolSpeed = minSpeed
-    self.maxPatrolSpeed = maxSpeed
-    return self
-end
-
---[[ set the min and max patrol range for the cap object
-- note: for each point in the patrol, a random distance from the patrol airbase/zone center will be chosen
-- @param #cap self
-- @param #number minRange [the minimum range in meters]
-- @param #number maxRange [the maximum range in meters]
-- @return #cap self
-]]
-function cap:setPatrolRange(minRange, maxRange)
-    self.minPatrolRange = minRange
-    self.maxPatrolRange = maxRange
-    return self
-end
-
---[[ set the min and max engage alt for the cap object
-- note: each time an engagement occurs, a random alt between the min and max will be chosen to engage from
-- @param #cap self
-- @param #number minAlt [the minimum alt in meters]
-- @param #number maxAlt [the maximum alt in meters]
-- @return #cap self
-]]
-function cap:setEngageAlt(minAlt, maxAlt)
-    self.minEngageAlt = minAlt
-    self.maxEngageAlt = maxAlt
-    return self
-end
-
---[[ set the min and max engage speed for the cap object
-- note: each time an engagement occurs, a random speed between the min and max will be chosen to engage at
-- @param #cap self
-- @param #number minSpeed [the minimum speed in meters]
-- @param #number maxSpeed [the maximum speed in meters]
-- @return #cap self
-]]
-function cap:setEngageSpeed(minSped, maxSpeed)
-    self.minEngageSpeed = minSped
-    self.maxEngageSpeed = maxSpeed
-    return self
-end
-
---[[ set the min and max engage range for the cap object
-- note: for any detected target a random range between the min and max is selected to check if the target is within that range.
-- @param #cap self
-- @param #number minRange [the minimum range in meters]
-- @param #number maxRange [the maximum range in meters]
-- @return #cap self
-]]
-function cap:setEngageRange(minRange, maxRange)
-    self.minEngageRange = minRange
-    self.maxEngageRange = maxRange
-    return self
-end
-
---[[ set the cap object to takeoff from parking hot
-- @param #cap self
-- @return #cap self
-]]
-function cap:setTakeoffHot()
-    self.takeoff = waypoint.takeoffParkingHot
-    return self
-end
-
---[[ set the cap object to takeoff from parking cold
-- @param #cap self
-- @return #cap self
-]]
-function cap:setTakeoffCold()
-    self.takeoff = waypoint.takeoffParking
-    return self
-end
-
---[[ set the cap object to takeoff from parking air
-- @param #cap self
-- @return #cap self
-]]
-function cap:setTakeoffAir(alt)
-    self.airstart = true
-    self.takeoffAlt = alt
-    return self
-end
-
---[[ set the cap object to takeoff from runway
-- @param #cap self
-- @return #cap self
-]]
-function cap:setTakeoffRunway()
-    self.takeoff = waypoint.takeoffRunway
-    return self
-end
-
-function cap:onafterStart()
-    --util:logInfo(self.debug, "onafter Start")
-    self:__Status(1)
-end
-
-function cap:onafterStatus()
-    --util:logInfo(self.debug, "onafter Status")
-    if self:isAlive() then
-        if self:inAir() == true then
-            if not self.rtb then
-                if self:getAvgFuel() > self.fuelThreshold then
-                    if self:getAvgHealth() > self.healthThreshold then
-                        if self:getAvgAmmo() > self.ammoThreshold then
-                            if not self.attacking then
-                                if self.patrolling then
-                                    self.detectedTargets = self:getDetectedTargets(self.detection, {0, 1}, math.random(self.minEngageRange, self.maxEngageRange))
-                                    if #self.detectedTargets > 0 then
-                                        self.attacking = true
-                                        self:__AttackTargets(1)
-                                    end
-                                else
-                                    self:__TaskPatrol(1) -- we are not rtb, we are not attacking, and we are not patrolling. so, lets patrol.
-                                end
-                            else
-                                -- attacking, checkup on the engaged targets
-                                if #self.engagedTargets > 0 then
-                                    self:__RefreshTargets(1)
-                                else
-                                    self.attacking = false
-                                end
-                            end
-                        else
-                            if not self.rtb then
-                                --util:logInfo(self.debug, "low ammo count of %d, RTB!", self:getAvgAmmo())
-                                self:__RTB(1)
-                            end
-                        end
-                    else
-                        if not self.rtb then
-                            --util:logInfo(self.debug, "low health of %0.2f, RTB!", self:getAvgHealth())
-                            self:__RTB(1)
-                        end
-                    end
-                else
-                    if not self.rtb then
-                        --util:logInfo(self.debug, "low fuel state of %0.2f, RTB!", self:getAvgFuel())
-                        self:__RTB(1)
-                    end
-                end
-            end
-    --[[ else
-            if self:getAvgVelocityKMH() < 2 then
-                -- we can do cleanup for inactive units here
-            end
-            ]]
-        end
-    else
-        if self.resources ~= nil then
-            if self.resources > 0 then
-                self:__Deploy(1)
-            else
-                if not self.depleated then
-                    --util:logInfo(self.debug, "%s has ran out of resources", self.capName)
-                    self.depleated = true
-                end
-            end
-        else
-            self:__Deploy(1)
-        end
-    end
-    if not self.depleated then
-        self:__Status(5)
-    end
-end
-
-function cap:onbeforeDeploy()
-    self.rtb = false
-    self.attacking = false
-    self.patrolling = false
-    self.detectedTargets = {}
-    self.engagedTargets = {}
-end
-
-function cap:onafterDeploy()
-    --util:logInfo(self.debug, "onafter Deploy")
-    if self.airstart then
-        self:birthFromVec3(Airbase.getByName(self.airbaseName):getPoint(), self.takeoffAlt)
-        self.resources = self.resources - #self.birthTemplate.units
-    else
-        self:birthFromAirbase(self.airbaseName, self.parkingSpots, self.takeoff)
-        self.resources = self.resources - #self.birthTemplate.units
-    end
-end
-
-function cap:onafterTakeoff(from, event, to, eventData)
-    --util:logInfo(self.debug, "onafter Takeoff")
-    --util:logInfo(self.debug, "%s has taken off from %s", eventData.initUnitName, eventData.placeName)
-end
-
-function cap:onafterTaskPatrol()
-    --util:logInfo(self.debug, "onafter TaskPatrol")
-    local patrolPoint
-    if Airbase.getByName(self.patrolName) then
-        patrolPoint = Airbase.getByName(self.patrolName):getPoint()
-    elseif zonesByName[self.patrolName] then
-        local zone = util:deepCopy(zonesByName[self.patrolName])
-        patrolPoint = {x = zone.x, y = zone.y, z = zone.y}
-    end
-    local taskMission = {
-        id = 'Mission',
-        params = {
-            airborne = true,
-            route = {
-                points = {}
-            }
-        }
-    }
-
-    local randomNum = math.random(1, 100)
-    local clockwise = false
-
-    if randomNum <= 50 then
-        clockwise = true
-    end
-
-    for wpId = 1, self.patrolShape.points do
-        local degrees
-        if not clockwise then
-            degrees = self.patrolShape.degrees*2
-        else
-            degrees = self.patrolShape.degrees
-        end
-        local radius = math.random(self.minPatrolRange, self.maxPatrolRange)
-        taskMission.params.route.points[wpId] = {
-            type = "Turning Point",
-            action = "Turning Point",
-            x = util:projectPoint(patrolPoint, radius, math.rad(degrees*wpId)).x,
-            y = util:projectPoint(patrolPoint, radius, math.rad(degrees*wpId)).z,
-            alt = math.random(self.minPatrolAlt, self.maxPatrolAlt),
-            alt_type = "BARO",
-            speed = math.random(self.minPatrolSpeed, self.maxPatrolSpeed),
-            speed_locked = true,
-            ETA = 0,
-            ETA_locked = false,
-            task = {
-                ["id"] = "ComboTask",
-                ["params"] = {
-                    ["tasks"] = {}
-                }
-            }
-        }
-    end
-    taskMission.params.route.points[1].task.params.tasks = {
-        [1] = {
-            ["number"] = 1,
-            ["auto"] = false,
-            ["id"] = "WrappedAction",
-            ["enabled"] = true,
-            ["params"] = {
-                ["action"] = {
-                    ["id"] = "SwitchWaypoint",
-                    ["params"] = {
-                        ["goToWaypointIndex"] = 1,
-                        ["fromWaypointIndex"] = #self.patrolShape.points
-                    }
-                }
-            }
-        }
-    }
-    self:getController():pushTask(taskMission)
-    self.patrolling = true
-    self.attacking = false
-    self.rtb = false
-    --util:logInfo(self.debug, "%s is enroute to patrol %s", self.capName, self.patrolName)
-end
-
-function cap:onafterAttackTargets()
-    --util:logInfo(self.debug, "onafter AttackTargets")
-    for i, unitName in pairs(self.detectedTargets) do
-        if Unit.getByName(unitName) ~= nil then
-            if Unit.getByName(unitName):getLife() >= 1 then
-                local unit = Unit.getByName(unitName)
-                local taskAttackUnit = {
-                    id = 'AttackUnit',
-                    params = {
-                        unitId = unit:getID(),
-                        weaponType = weaponFlag.AnyAAWeapon,
-                        expend = "One",
-                        directionEnabled = false,
-                        direction = 0,
-                        altitudeEnabled = true,
-                        altitude = math.random(self.minEngageAlt, self.maxEngageAlt),
-                        attackQtyLimit = true,
-                        attackQty = 1,
-                    }
-                }
-                self:getController():pushTask(taskAttackUnit)
-                self.detectedTargets[i] = nil
-                self.engagedTargets[#self.engagedTargets+1] = unitName
-                break -- >.<
-            end
-        end
-    end
-end
-
-function cap:onafterRefreshTargets()
-    --util:logInfo(self.debug, "onafter RefreshTargets")
-    for i, unitName in pairs(self.engagedTargets) do
-        if Unit.getByName(unitName) == nil or Unit.getByName(unitName):isExist() == false then
-            self.engagedTargets[i] = nil
-        else
-            if self.oldDilation then
-                local newDilation = util:getSimTime()
-                local timeDilation = newDilation - self.oldDilation
-                if timeDilation > 180 then
-                    self.oldDilation = nil
-                    self:__AttackTargets(1)
-                end
-            else
-                self.oldDilation = util:getSimTime()
-            end
-        end
-    end
-end
-
-function cap:onafterRTB()
-    --util:logInfo(self.debug, "onafter RTB")
-    local landingAirbase = Airbase.getByName(self.airbaseName)
-    local landingVec3 = landingAirbase:getPoint()
-    local taskRTB = {
-        id = 'Mission',
-        params = {
-            airborne = true,
-            route = {
-                points = {
-                    [1] = {
-                        type = "LandingReFuAr",
-                        action = "LandingReFuAr",
-                        --timeReFuAr = 7,
-                        x = landingVec3.x,
-                        y = landingVec3.z,
-                        alt = math.random(self.minPatrolAlt, self.maxPatrolAlt),
-                        alt_type = "BARO",
-                        speed = math.random(self.minPatrolSpeed, self.maxPatrolSpeed),
-                        speed_locked = true,
-                        ETA = 0,
-                        ETA_locked = false,
-                        task = {
-                            ["id"] = "ComboTask",
-                            ["params"] = {
-                                ["tasks"] = {}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    self:getController():setTask(taskRTB)
-    self.rtb = true
-end
-
-function cap:onafterLand(from, event, to, eventData)
-    --util:logInfo(self.debug, "onafter Land")
-    self.resources = self.resources + 1
-    --util:logInfo(self.debug, "%s has landed", eventData.initUnitName)
-end
-
-function cap:onafterEngineShutdown(from, event, to, eventData)
-    --util:logInfo(self.debug, "onafter EngineShutdown")
-    --util:logInfo(self.debug, "%s has shutdown its engines", eventData.initUnitName)
-    util:scheduleFunction(Unit.destroy, eventData.initUnit, 15)
 end
 
 --
@@ -3032,7 +1965,7 @@ unit = {}
 ]]
 function unit:getByName(unitName)
     if unitsByName[unitName] then
-        local self = util:inherit(self, handler:new())
+        local self = util:inheritParent(self, handler:new())
         self.unitName = unitName
         self.unitTemplate = util:deepCopy(unitsByName[unitName])
         return self
@@ -3051,7 +1984,7 @@ end
 - @return #unit self
 ]]
 function unit:handleEvent(event)
-    self:onUnitEvent(self, event, self:getName())
+    self:handleUnitEvent(self, event, self:getName())
     return self
 end
 
@@ -3118,15 +2051,8 @@ end
 - @return #boolean alive [true if the #unit is alive]
 ]]
 function unit:isAlive()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        if dcsUnit:isActive() then
-            if dcsUnit:isExist() then
-                if dcsUnit:getLife() >= 1 and dcsUnit:getFuel() == 0 then
-                    return true
-                end
-            end
-        end
+    if self:isActive() and self:isExist() and self:getLife() > 0 then
+        return true
     end
     return false
 end
@@ -3559,7 +2485,7 @@ airbase = {}
 ]]
 function airbase:getByName(airbaseName)
     if airbasesByName[airbaseName] then
-        local self = util:inherit(self, handler:new())
+        local self = util:inheritParent(self, handler:new())
         self.airbaseName = airbaseName
         self.airbaseTemplate = util:deepCopy(airbasesByName[airbaseName])
         return self
@@ -3888,7 +2814,7 @@ static = {}
 ]]
 function static:getByName(staticName)
     if staticsByName[staticName] then
-        local self = util:inherit(self, handler:new())
+        local self = util:inheritParent(self, handler:new())
         self.staticName = staticName
         self.staticTemplate = util:deepCopy(staticsByName[staticName])
         return self
@@ -4135,7 +3061,6 @@ wrapper functions for DCS Class Group with additional methods available.
 ]]
 
 group = {}
-group.debug = true
 
 --[[ create a new instance of a group object
 - returns any object that has been placed in the mission or dynamically born
@@ -4145,7 +3070,7 @@ group.debug = true
 ]]
 function group:getByName(groupName)
     if groupsByName[groupName] ~= nil then
-        local self = util:inherit(self, handler:new())
+        local self = util:inheritParent(self, handler:new())
         self.groupName = groupName
         self.groupTemplate = util:deepCopy(groupsByName[groupName])
         return self
@@ -4160,7 +3085,7 @@ end
 - @param #enum event [the event that will be triggered for the units within the group, eg: event.land
 - @return #group self]]
 function group:handleEvent(event)
-    self:onGroupEvent(self, event, self.groupName)
+    self:handleGroupEvent(self, event, self.groupName)
     return self
 end
 
@@ -4185,8 +3110,10 @@ end
 ]]
 function group:getUnits()
     local units = {}
-    for _, u in pairs(self.groupTemplate.units) do
-        units[#units+1] = unit:getByName(u.name)
+    if self.groupTemplate then
+        for _, u in pairs(self.groupTemplate.units) do
+            units[#units+1] = unit:getByName(u.name)
+        end
     end
     return units
 end
@@ -4344,27 +3271,11 @@ end
 - @param #group self
 - @return #boolean [true if at least one unit is still alive]
 ]]
-function group:isAlive(allOfGroupAlive)
+function group:isAlive()
     local dcsGroup = self:getDCSGroup()
     if dcsGroup then
-        local templateSize = #self.groupTemplate.units
-        local aliveUnits = 0
-        local units = self:getUnits()
-        for _, unit in pairs(units) do
-            if unit:isActive() then
-                if unit:isExist() then
-                    if unit:getLife() >= 1 then
-                        aliveUnits = aliveUnits + 1
-                    end
-                end
-            end
-        end
-        if allOfGroupAlive then
-            if templateSize == aliveUnits then
-                return true
-            end
-        else
-            if aliveUnits > 0 then
+        for _, unit in pairs(self:getDCSUnits()) do
+            if unit:isActive() and unit:isExist() and unit:getLife() > 0 then
                 return true
             end
         end
@@ -4600,4 +3511,5 @@ function group:enableEmission(emission)
     end
 end
 
-util:logInfo(debugger, "successfully loaded SSF v%d.%d.%d", major, minor, patch)
+ssf:initialize()
+ssf:info("Simple Scripting Framework %s Loaded Successfully", ssf.version)
