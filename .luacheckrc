@@ -45,5 +45,10 @@ globals = {
     "searchUnit",
     "searchStatic",
     "searchAirbase",
-    "zone"
+    "zone",
+    "ssf",
+    "enum",
+    "logger",
+    "message",
+    "scheduler"
 }
