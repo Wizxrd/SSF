@@ -50,5 +50,8 @@ globals = {
     "enum",
     "logger",
     "message",
-    "scheduler"
+    "scheduler",
+    "database",
+    "base",
+    "databases"
 }

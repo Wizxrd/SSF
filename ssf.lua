@@ -13,135 +13,16 @@ Orientated Lua Scripting for DCS World Mission Creators.
 
 @created Jan 30, 2022
 
-@version 0.3.0
+@version 0.4.0
 
 @todo
 
 ]]
 
-ssf = {}
+log.write("ssf.lua", log.INFO, "loading simple scripting framework")
 
-function ssf:initialize()
-    ssf = util:inheritParent(self, logger)
-    ssf.version = "v0.3.0"
-    ssf.source = "ssf.lua"
-    ssf.level = 5
-    ssf:initializeDatabases()
-end
-
---
---
--- ** database initialization **
---
---
-
-local groupsByName = {}
-local unitsByName = {}
-local staticsByName = {}
-local airbasesByName = {}
-local zonesByName = {}
-local payloadsByUnitName = {}
-local liverysByUnitName = {}
-
-function ssf:initializeDatabases()
-
-    local categories = {
-        ["plane"] = 0,
-        ["helicopter"] = 1,
-        ["vehicle"] = 2,
-        ["ship"] = 3,
-    }
-
-    local coalitions = {
-        ["neutral"] = 0,
-        ["red"] = 1,
-        ["blue"] = 2
-    }
-
-    for coaSide, coaData in pairs(env.mission.coalition) do
-        if coaSide == "neutrals" then coaSide = "neutral" end
-        if type(coaData) == "table" then
-            if coaData.country then -- country has data
-                for _, ctryData in pairs(coaData.country) do
-                    for objType, objData in pairs(ctryData) do
-                        if objType == "plane" or objType == "helicopter" or objType == "vehicle" or objType == "ship" then
-                            for _, groupData in pairs(objData.group) do
-                                if groupData and type(groupData.units) == "table" and #groupData.units > 0 then
-                                    if groupData.lateActivation then
-                                        groupData.lateActivation = false
-                                    end
-                                    groupsByName[groupData.name] = util:deepCopy(groupData)
-                                    groupsByName[groupData.name].coalition = coalitions[coaSide]
-                                    groupsByName[groupData.name].countryId = ctryData.id
-                                    groupsByName[groupData.name].category = categories[objType]
-                                   self:debug("ssf:initializeDatabases(): group database registered group %s into groupsByName", groupData.name)
-                                end
-                            end
-                        elseif objType == "static" then
-                            for _, staticData in pairs(objData.group) do
-                                staticsByName[staticData.name] = util:deepCopy(staticData)
-                               self:debug("ssf:initializeDatabases(): static database registered static %s into staticsByName", staticData.name)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    for _, airdrome in pairs(world.getAirbases()) do
-        local airbaseName = airdrome:getName()
-        airbasesByName[airbaseName] = {
-            ["name"] = airbaseName,
-            ["desc"] = airdrome:getDesc(),
-            ["id"] = airdrome:getID(),
-            ["point"] = airdrome:getPoint(),
-            ["category"] = airdrome:getDesc().category,
-            ["coalition"] = airdrome:getCoalition(),
-            ["countryId"] = airdrome:getCountry(),
-        }
-        if Airbase.getUnit(airdrome) then
-            airbasesByName[airbaseName].unitId = Airbase.getUnit(airdrome):getID()
-           self:debug("ssf:initializeDatabases(): airbase database registered airbase *unit* %s into airbasesByName", airbaseName)
-        else
-           self:debug("ssf:initializeDatabases(): airbase database registered airbase %s into airbasesByName", airbaseName)
-        end
-    end
-
-    for _, zones in pairs(env.mission.triggers) do
-        for _, zoneData in pairs(zones) do
-            zonesByName[zoneData.name] = util:deepCopy(zoneData)
-            self:debug("ssf:initializeDatabases(): zone database registered trigger zone %s into zonesByName", zoneData.name)
-        end
-    end
-
-    for _, groupData in pairs(groupsByName) do
-        for _, unitData in pairs(groupData.units) do
-            if unitData.skill ~= "Client" or unitData.skill ~= "Player" then -- this exception still collects them, it makes no sense
-                unitsByName[unitData.name] = util:deepCopy(unitData)
-                self:debug("ssf:initializeDatabases(): unit database registered unit %s into unitsByName", unitData.name)
-                if unitData.payload then
-                    payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
-                    self:debug("ssf:initializeDatabases(): payload database registered unit %s into payloadsByUnitName", unitData.name)
-                end
-                if unitData.livery_id then
-                    liverysByUnitName[unitData.name] = util:deepCopy(unitData.livery_id)
-                    self:debug("ssf:initializeDatabases(): livery database registered unit %s into liverysByUnitName", unitData.name)
-                end
-            end
-        end
-    end
-
-    groupsByName = util:deepCopy(groupsByName)
-    unitsByName = util:deepCopy(unitsByName)
-    staticsByName = util:deepCopy(staticsByName)
-    airbasesByName = util:deepCopy(airbasesByName)
-    zonesByName = util:deepCopy(zonesByName)
-	payloadsByUnitName = util:deepCopy(payloadsByUnitName)
-	liverysByUnitName = util:deepCopy(liverysByUnitName)
-
-    self:debug("ssf:initializeDatabases(): databases successfully built")
-end
+local ssf = {}
+ssf.version = "0.4.0"
 
 --
 --
@@ -573,21 +454,20 @@ logger.enum  = {
     ["trace"]   = 6
 }
 
-logger.callbacks = {
-    {["method"] = "alert",   ["enum"] = "ALERT"},
-    {["method"] = "error",   ["enum"] = "ERROR"},
-    {["method"] = "warning", ["enum"] = "WARNING"},
-    {["method"] = "info",    ["enum"] = "INFO"},
-    {["method"] = "debug",   ["enum"] = "DEBUG"},
-    {["method"] = "trace",   ["enum"] = "TRACE"},
-}
-
 do
     local logwrite = log.write
     local format = string.format
     local osdate
     if os then osdate = os.date end
-    for i, callback in ipairs(logger.callbacks) do
+    local callbacks = {
+        {["method"] = "alert",   ["enum"] = "ALERT"},
+        {["method"] = "error",   ["enum"] = "ERROR"},
+        {["method"] = "warning", ["enum"] = "WARNING"},
+        {["method"] = "info",    ["enum"] = "INFO"},
+        {["method"] = "debug",   ["enum"] = "DEBUG"},
+        {["method"] = "trace",   ["enum"] = "TRACE"},
+    }
+    for i, callback in ipairs(callbacks) do
         logger[callback.method] = function(self, message, ...)
             if self.level < i then
                 return
@@ -604,7 +484,7 @@ do
 end
 
 function logger:new(source, level, file, openmode, datetime)
-    local self = setmetatable({}, {__index = logger})
+    local self = util:inheritParent(self, logger)
     self.source = source
     if type(level) == "number" then self.level = level end
     if type(level) == "string" then self.level = self.enum[level] end
@@ -636,6 +516,244 @@ end
 
 function logger:setDateTime(datetime)
     self.datetime = datetime
+    return self
+end
+
+--[[
+
+@class #base
+
+@authors Wizard
+
+@description
+the base class is the base class for all classes to inherit from
+
+@features
+- logger inheritance
+
+@created May 24, 2022
+
+]]
+
+base = {}
+base = util:inheritParent({}, logger)
+base.source = "ssf.lua"
+base.level = 5
+
+function base:new(source, level)
+    local self = util:inheritParent(self, logger)
+    self.source = source
+    self.level = level
+    return self
+end
+
+--[[
+
+@class #datbases
+
+@authors Wizard
+
+@description
+builds a new instnace of a database object that holds all of the object data defined in the mission
+
+@features
+
+@created May 24, 2022
+
+]]
+
+
+databases = {}
+
+function databases:new()
+    local self = util:inheritParent(self, base)
+    self:registerGroups()
+    self:registerStatics()
+    self:registerUnits()
+    self:registerPlayers()
+    self:registerClients()
+    self:registerPayloads()
+    self:registerLiverys()
+    self:registerAirbases()
+    self:registerZones()
+    return self
+end
+
+function databases:getObject(name)
+    for _, database in pairs(self) do
+        if type(database) == "table" then
+            if database[name] then
+                return util:deepCopy(database[name])
+            end
+        end
+    end
+end
+
+function databases:getObjectFromDatabase(database, name)
+    if self[database] then
+        if self[database][name] then
+            return util:deepCopy(self[database][name])
+        end
+    end
+end
+
+function databases:addObjectToDatabase(database, object)
+    if self[database] then
+        self[database][object.name] = util:deepCopy(object)
+        self:debug("databases:addObjectToDatabase(): %s database registered new object %s", database, object.name)
+    end
+    return self
+end
+
+function databases:removeObjectFromDatabase(database, object)
+    if self[database] then
+        if self[database][object.name] then
+            self[database][object.name] = nil
+            self:debug("databases:removeObjectFromDatabase(): %s database removed object %s", database, object.name)
+        end
+    end
+    return self
+end
+
+function databases:registerGroups()
+    local groupCategory = {
+        ["plane"] = 0,
+        ["helicopter"] = 1,
+        ["vehicle"] = 2,
+        ["ship"] = 3,
+        ["train"] = 4
+    }
+    self.groupsByName = {}
+    for sideName, coalitionData in pairs(env.mission.coalition) do
+        if sideName == "neutrals" then sideName = "neutral" end
+        if type(coalitionData) == "table" then
+            if coalitionData.country then
+                for _, countryData in pairs(coalitionData.country) do
+                    for categoryName, objectData in pairs(countryData) do
+                        if categoryName == "plane" or categoryName == "helicopter" or categoryName == "vehicle" or categoryName == "ship" or categoryName == "train" then
+                            for _, groupData in pairs(objectData.group) do
+                                self.groupsByName[groupData.name] = util:deepCopy(groupData)
+                                self.groupsByName[groupData.name].coalition = coalition.side[sideName:upper()]
+                                self.groupsByName[groupData.name].countryId = countryData.id
+                                self.groupsByName[groupData.name].category = groupCategory[categoryName]
+                                self:info("databases:registerGroups(): registered group %s", groupData.name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return self
+end
+
+function databases:registerStatics()
+    self.staticsByName = {}
+    for sideName, coalitionData in pairs(env.mission.coalition) do
+        if sideName == "neutrals" then sideName = "neutral" end
+        if type(coalitionData) == "table" then
+            if coalitionData.country then
+                for _, countryData in pairs(coalitionData.country) do
+                    for objectCategory, objectData in pairs(countryData) do
+                        if objectCategory == "static" then
+                            for _, staticData in pairs(objectData.group) do
+                                self.staticsByName[staticData.name] = util:deepCopy(staticData.units)
+                                self.staticsByName[staticData.name].coalition = coalition.side[sideName:upper()]
+                                self.staticsByName[staticData.name].countryId = countryData.id
+                                self:info("databases:registerStatics(): registered static %s", staticData.name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return self
+end
+
+function databases:registerUnits()
+    self.unitsByName = {}
+    for _, groupData in pairs(self.groupsByName) do
+        for _, unitData in pairs(groupData.units) do
+            if unitData.skill ~= "Client" and unitData.skill ~= "Player" then -- this exception still collects them, it makes no sense
+                self.unitsByName[unitData.name] = util:deepCopy(unitData)
+                self:info("databases:registerUnits(): registered unit %s", unitData.name)
+            end
+        end
+    end
+    return self
+end
+
+function databases:registerPlayers()
+    self.playersByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.skill == "Player" then
+            self.playersByUnitName[unitData.name] = util:deepCopy(unitData)
+            self:info("databases:registerPlayers(): registered player unit %s", unitData.name)
+        end
+    end
+    return self
+end
+
+function databases:registerClients()
+    self.clientsByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.skill == "Client" then
+            self.clientsByUnitName[unitData.name] = util:deepCopy(unitData)
+            self:info("databases:registerClients(): registered client unit %s", unitData.name)
+        end
+    end
+    return self
+end
+
+function databases:registerPayloads()
+    self.payloadsByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.payload then
+            self.payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
+            self:info("databases:registerPayloads(): registered payload from unit %s", unitData.name)
+        end
+    end
+    return self
+end
+
+function databases:registerLiverys()
+    self.liverysByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.livery_id then
+            self.liverysByUnitName[unitData.name] = util:deepCopy(unitData.livery_id)
+            self:info("databases:registerLiverys(): registered livery from unit %s", unitData.name)
+        end
+    end
+    return self
+end
+
+function databases:registerAirbases()
+    self.airbasesByName = {}
+    for _, airdrome in pairs(world.getAirbases()) do
+        local airbaseName = airdrome:getName()
+        self.airbasesByName[airbaseName] = {
+            ["name"] = airbaseName,
+            ["desc"] = airdrome:getDesc(),
+            ["id"] = airdrome:getID(),
+            ["point"] = airdrome:getPoint(),
+            ["category"] = airdrome:getDesc().category,
+            ["coalition"] = airdrome:getCoalition(),
+            ["countryId"] = airdrome:getCountry(),
+        }
+        self:info("databases:registerAirbases(): registered airbase %s", airbaseName)
+    end
+    return self
+end
+
+function databases:registerZones()
+    self.zonesByName = {}
+    for _, zones in pairs(env.mission.triggers) do
+        for _, zoneData in pairs(zones) do
+            self.zonesByName[zoneData.name] = util:deepCopy(zoneData)
+            self:info("databases:registerZones(): registered trigger zone %s", zoneData.name)
+        end
+    end
     return self
 end
 
@@ -759,7 +877,7 @@ fsm = {}
 - @return #fsm
 ]]
 function fsm:new()
-    local self = util:inheritParent(self, fsm)
+    local self = util:inheritParent(self, base)
     self.options = {}
     self.options.subs = {}
     self.current = 'none'
@@ -990,7 +1108,7 @@ function fsm:callHandler(step, trigger, params, EventName)
         self._EventSchedules[EventName] = nil
         -- Error handler.
         local ErrorHandler = function(errmsg)
-            ssf:error("fsm:callHandler(): Error in scheduled function:" .. errmsg)
+            self:error("fsm:callHandler(): Error in scheduled function:" .. errmsg)
             return errmsg
         end
         local Result, Value = xpcall(function() return self[handler](self, unpack(params)) end, ErrorHandler)
@@ -1278,6 +1396,7 @@ function handler:handleUnitEvent(class, event, unitName)
             unit = true,
             unitName = unitName
         }
+        self:addTransition("*", event.name, "*")
     end
     return self
 end
@@ -1404,7 +1523,7 @@ function handler:onEvent(event)
             end
         end
     end)
-    if not success then ssf:error("handler:onEvent(): ERROR IN onEvent : %s", tostring(err)) end
+    if not success then self:error("handler:onEvent(): ERROR IN onEvent : %s", tostring(err)) end
 end
 
 --[[
@@ -1453,10 +1572,13 @@ birth.takeoff = {
 ]]
 
 function birth:new(groupName)
-    if not groupsByName[groupName] then ssf:error("birth:new(): could not find %s in groupsByName", groupName) return end
-    local self = util:inheritParents(self, {handler:new(), group})
+    if not database.groupsByName[groupName] then
+        base:error("birth:new(): group %s cannot be found in the database", groupName)
+        return
+    end
+    local self = util:inheritParents(self, {base, handler:new(), group})
     self.templateName = groupName
-    self.template = util:deepCopy(groupsByName[groupName])
+    self.template = util:deepCopy(database.groupsByName[groupName])
     self.groupTemplate = util:deepCopy(self.template)
     self.countryId = self.groupTemplate.countryId
     self.category = self.groupTemplate.category
@@ -1481,7 +1603,7 @@ function birth:new(groupName)
 end
 
 function birth:handleEvent(event)
-    ssf:debug("birth:handleEvent(): handling event %s", event.name)
+    self:debug("birth:handleEvent(): handling event %s", event.name)
     self:handleGroupEvent(self, event, self.templateName or self.alias)
     return self
 end
@@ -1504,47 +1626,47 @@ function birth:setLimit(groupLimit, unitLimit)
 end
 
 function birth:setPayload(unitId, unitName)
-    if not payloadsByUnitName[unitName] then ssf:error("birth:setPayload(): could not find %s in payloadsByUnitName", unitName) return end
-    local unitPayload = util:deepCopy(payloadsByUnitName[unitName])
+    if not database.payloadsByUnitName[unitName] then self:error("birth:setPayload(): could not find %s in database", unitName) return end
+    local unitPayload = util:deepCopy(database.payloadsByUnitName[unitName])
     self.template.units[unitId].payload = unitPayload
     return self
 end
 
 function birth:setLivery(unitId, unitName)
-    if not liverysByUnitName[unitName] then ssf:error("birth:setPayload(): could not find %s in liverysByUnitName", unitName) return end
-    local unitLivery = util:deepCopy(liverysByUnitName[unitName])
+    if not database.liverysByUnitName[unitName] then self:error("birth:setLivery(): could not find %s in database", unitName) return end
+    local unitLivery = util:deepCopy(database.liverysByUnitName[unitName])
     self.template.units[unitId].livery_id = unitLivery
     return self
 end
 
 function birth:setCountry(countryName)
-    if not country.id[countryName] then ssf:error("birth:setCountry(): couldnt find country.id.%s", countryName) return end
+    if not country.id[countryName] then self:error("birth:setCountry(): couldnt find country.id.%s", countryName) return end
     self.countryId = country.id[countryName]
     return self
 end
 
 function birth:birthToWorld()
-    ssf:debug("birth:birthToWorld(): preparing template %s for birth", self.templateName)
+    self:debug("birth:birthToWorld(): preparing template %s for birth", self.templateName)
     self:_initialize()
     return self
 end
 
 function birth:birthScheduled(scheduleTime)
-    ssf:debug("birth:birthScheduled(): preparing template %s for birth on a scheduler", self.templateName)
+    self:debug("birth:birthScheduled(): preparing template %s for birth on a scheduler", self.templateName)
     self.scheduleTime = scheduleTime
     self:_initialize()
     return self
 end
 
 function birth:birthFromVec3(vec3, alt)
-    ssf:debug("birth:birthFromVec3(): preparing template %s for birth from a vec3", self.templateName)
+    self:debug("birth:birthFromVec3(): preparing template %s for birth from a vec3", self.templateName)
     if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
         alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
     elseif self.category == Group.Category.SHIP then
         alt = 0
     elseif self.category == Group.Category.AIRPLANE or self.category == Group.Category.HELICOPTER then
         if not alt then
-            ssf:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
+            self:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
             return self
         end
         alt = alt
@@ -1571,63 +1693,63 @@ function birth:birthFromVec3(vec3, alt)
 end
 
 function birth:_updateActiveGroups()
-    ssf:debug("birth:_updateActiveGroups(): updating active groups for template %s", self.templateName)
+    self:debug("birth:_updateActiveGroups(): updating active groups for template %s", self.templateName)
     self.activeGroups = {}
     for _, groupName in pairs(self.bornGroups) do
         if group:getByName(groupName) then
             if group:getByName(groupName):isAlive() then
                 self.activeGroups[#self.activeGroups+1] = groupName
             else
-                ssf:debug("birth:_updateActiveGroups(): group %s not alive", groupName)
+                self:debug("birth:_updateActiveGroups(): group %s not alive", groupName)
             end
         else
-            ssf:debug("birth:_updateActiveGroups(): cant find group %s in database?", groupName)
+            self:debug("birth:_updateActiveGroups(): cant find group %s in database?", groupName)
         end
     end
     return self
 end
 
 function birth:_updateActiveUnits()
-    ssf:debug("birth:_updateActiveUnits(): updating active units for template %s", self.templateName)
+    self:debug("birth:_updateActiveUnits(): updating active units for template %s", self.templateName)
     self.activeUnits = {}
     for _, unitName in pairs(self.bornUnits) do
         if unit:getByName(unitName) then
             if unit:getByName(unitName):isAlive() then
                 self.activeUnits[#self.activeUnits+1] = unitName
             else
-                ssf:debug("birth:_updateActiveUnits(): unit %s not alive", unitName)
+                self:debug("birth:_updateActiveUnits(): unit %s not alive", unitName)
             end
         else
-            ssf:debug("birth:_updateActiveUnits(): cant find unit %s in database?", unitName)
+            self:debug("birth:_updateActiveUnits(): cant find unit %s in database?", unitName)
         end
     end
     return self
 end
 
 function birth:_witihinGroupLimit()
-    ssf:debug("birth:_witihinGroupLimit(): comparing active groups against the groupLimit for template %s", self.templateName)
+    self:debug("birth:_witihinGroupLimit(): comparing active groups against the groupLimit for template %s", self.templateName)
     self:_updateActiveGroups()
     if #self.activeGroups < self.groupLimit then
-        ssf:debug("birth:_witihinGroupLimit(): returning true, template %s has less active groups than the groupLimit", self.templateName)
+        self:debug("birth:_witihinGroupLimit(): returning true, template %s has less active groups than the groupLimit", self.templateName)
         return true
     end
-    ssf:debug("birth:_witihinGroupLimit(): returning false, template %s active groups are greater than or equal to the groupLimit", self.templateName)
+    self:debug("birth:_witihinGroupLimit(): returning false, template %s active groups are greater than or equal to the groupLimit", self.templateName)
     return false
 end
 
 function birth:_withinUnitLimit()
-    ssf:debug("birth:_withinUnitLimit(): comparing active units against the unitLimit for template %s", self.templateName)
+    self:debug("birth:_withinUnitLimit(): comparing active units against the unitLimit for template %s", self.templateName)
     self:_updateActiveUnits()
     if #self.activeUnits + #self.groupTemplate.units <= self.unitLimit then
-        ssf:debug("birth:_withinUnitLimit(): returning true, template %s has less active units than the unitLimit", self.templateName)
+        self:debug("birth:_withinUnitLimit(): returning true, template %s has less active units than the unitLimit", self.templateName)
         return true
     end
-    ssf:debug("birth:_withinUnitLimit(): returning false, template %s active units are greater than or equal to the unitLimit", self.templateName)
+    self:debug("birth:_withinUnitLimit(): returning false, template %s active units are greater than or equal to the unitLimit", self.templateName)
     return false
 end
 
 function birth:_initialize()
-    ssf:debug("birth:_initialize(): initializing template %s", self.templateName)
+    self:debug("birth:_initialize(): initializing template %s", self.templateName)
     if not self.groupLimit and not self.unitLimit then
         -- not group limit and not unit limit
         self:_addGroup()
@@ -1651,7 +1773,7 @@ function birth:_initialize()
 end
 
 function birth:_addGroup()
-    ssf:debug("birth:_addGroup(): adding template %s into the world", self.templateName)
+    self:debug("birth:_addGroup(): adding template %s into the world", self.templateName)
     if self.schedulerId then self.schedulerId = nil end
     if not self.keepGroupName then
         if self.alias then
@@ -1667,22 +1789,28 @@ function birth:_addGroup()
             self.groupTemplate.units[unitId].name = self.groupTemplate.name.."-"..unitId
         end
     end
+    if self.groupTemplate.lateActivation then
+        self.groupTemplate.lateActivation = false
+    end
     coalition.addGroup(self.countryId, self.category, self.groupTemplate)
     self.count = self.count + 1
     self.bornGroups[#self.bornGroups+1] = self.groupName
-    groupsByName[self.groupTemplate.name] = util:deepCopy(self.groupTemplate)
+    database:addObjectToDatabase("groupsByName", self.groupTemplate)
     for _, unitData in pairs(self.groupTemplate.units) do
-        unitsByName[unitData.name] = util:deepCopy(unitData)
+        self.bornUnits[#self.bornUnits+1] = unitData.name
+        database:addObjectToDatabase("unitsByName", unitData)
         if unitData.payload then
-            payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
-            self.bornUnits[#self.bornUnits+1] = unitData.name
+            database:addObjectToDatabase("payloadsByUnitName", unitData)
+        end
+        if unitData.livery_id then
+            database:addObjectToDatabase("liverysByUnitName", unitData)
         end
     end
     if self.scheduleTime then
         local scheduleBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
         self.schedulerId = scheduleBirth.functionId
     end
-    ssf:debug("birth:_addGroup(): %s has been born into the world", self.groupName)
+    self:debug("birth:_addGroup(): %s has been born into the world", self.groupName)
     return self
 end
 
@@ -1780,7 +1908,7 @@ searchGroup = {}
 
 function searchGroup:new()
     local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(groupsByName)
+    self.database = util:deepCopy(database.groupsByName)
     return self
 end
 
@@ -1788,7 +1916,7 @@ searchUnit = {}
 
 function searchUnit:new()
     local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(unitsByName)
+    self.database = util:deepCopy(database.unitsByName)
     return self
 end
 
@@ -1796,7 +1924,7 @@ searchStatic = {}
 
 function searchStatic:new()
     local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(staticsByName)
+    self.database = util:deepCopy(database.staticsByName)
     return self
 end
 
@@ -1804,7 +1932,7 @@ searchAirbase = {}
 
 function searchAirbase:new()
     local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(airbasesByName)
+    self.database = util:deepCopy(database.airbasesByName)
     return self
 end
 
@@ -1825,10 +1953,10 @@ end
 zone = {}
 
 function zone:getByName(zoneName)
-    if zonesByName[zoneName] then
+    if database.zonesByName[zoneName] then
         local self = util:inheritParent(self, fsm:new())
         self.zoneName = zoneName
-        self.zoneData = util:deepCopy(zonesByName[zoneName])
+        self.zoneData = util:deepCopy(database.zonesByName[zoneName])
         return self
     end
 end
@@ -1964,10 +2092,10 @@ unit = {}
 - @return #unit self
 ]]
 function unit:getByName(unitName)
-    if unitsByName[unitName] then
+    if database.unitsByName[unitName] then
         local self = util:inheritParent(self, handler:new())
         self.unitName = unitName
-        self.unitTemplate = util:deepCopy(unitsByName[unitName])
+        self.unitTemplate = util:deepCopy(database.unitsByName[unitName])
         return self
     end
     return nil
@@ -2009,8 +2137,8 @@ end
 ]]
 function unit:getPayload(unitName)
     local name = unitName or self.unitName
-    if payloadsByUnitName[name] then
-        local payload = util:deepCopy(payloadsByUnitName[unitName])
+    if database.payloadsByUnitName[name] then
+        local payload = util:deepCopy(database.payloadsByUnitName[unitName])
         return payload
     end
     return nil
@@ -2484,10 +2612,10 @@ airbase = {}
 - @return #airbase self
 ]]
 function airbase:getByName(airbaseName)
-    if airbasesByName[airbaseName] then
+    if database.airbasesByName[airbaseName] then
         local self = util:inheritParent(self, handler:new())
         self.airbaseName = airbaseName
-        self.airbaseTemplate = util:deepCopy(airbasesByName[airbaseName])
+        self.airbaseTemplate = util:deepCopy(database.airbasesByName[airbaseName])
         return self
     end
     return nil
@@ -2813,10 +2941,10 @@ static = {}
 - @return #group self
 ]]
 function static:getByName(staticName)
-    if staticsByName[staticName] then
+    if database.staticsByName[staticName] then
         local self = util:inheritParent(self, handler:new())
         self.staticName = staticName
-        self.staticTemplate = util:deepCopy(staticsByName[staticName])
+        self.staticTemplate = util:deepCopy(database.staticsByName[staticName])
         return self
     end
     return nil
@@ -3069,10 +3197,10 @@ group = {}
 - @return #group self
 ]]
 function group:getByName(groupName)
-    if groupsByName[groupName] ~= nil then
+    if database.groupsByName[groupName] ~= nil then
         local self = util:inheritParent(self, handler:new())
         self.groupName = groupName
-        self.groupTemplate = util:deepCopy(groupsByName[groupName])
+        self.groupTemplate = util:deepCopy(database.groupsByName[groupName])
         return self
     end
     return nil
@@ -3511,5 +3639,6 @@ function group:enableEmission(emission)
     end
 end
 
-ssf:initialize()
-ssf:info("Simple Scripting Framework %s Loaded Successfully", ssf.version)
+database = databases:new()
+
+base:info("simple scripting framework successfully loaded version %s", ssf.version)
