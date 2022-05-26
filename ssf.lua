@@ -2034,7 +2034,6 @@ function scenery:getByName(sceneryName)
 end
 
 function scenery:getDescByName()
-    t = SceneryObject
     local typeName = SceneryObject.getTypeName(self.dcsObject)
     if typeName then
         local desc = SceneryObject.getDescByName(typeName)
