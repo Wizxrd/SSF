@@ -55,5 +55,6 @@ globals = {
     "base",
     "databases",
     "object",
-    "scenery"
+    "scenery",
+    "SceneryObject"
 }
