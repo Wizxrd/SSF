@@ -13,16 +13,18 @@ Orientated Lua Scripting for DCS World Mission Creators.
 
 @created Jan 30, 2022
 
-@version 0.4.0
+@version 0.0.1
 
 @todo
-
+- finish coalition objects and their member methods not inherited from object class
+- finish group object wrapper member methods
+- finish birth class methods
 ]]
 
 log.write("ssf.lua", log.INFO, "loading simple scripting framework")
 
 local ssf = {}
-ssf.version = "0.4.0"
+ssf.version = "0.0.1"
 
 --
 --
@@ -441,7 +443,7 @@ logger module for mission scripting environemt + hook environment
 logger = {
     ["openmode"] = "a",
     ["datetime"] = "%Y-%m-%d %H:%M:%S",
-    ["level"] = 6,
+    ["level"] = 5,
 }
 
 logger.enum  = {
@@ -526,25 +528,38 @@ end
 @authors Wizard
 
 @description
-the base class is the base class for all classes to inherit from
 
 @features
-- logger inheritance
 
 @created May 24, 2022
 
 ]]
 
 base = {}
-base = util:inheritParent({}, logger)
+base.className = "base"
+base.classId = 1
 base.source = "ssf.lua"
 base.level = 5
 
-function base:new(source, level)
-    local self = util:inheritParent(self, logger)
-    self.source = source
-    self.level = level
+function base:new()
+    local self = util:inheritParent(base, logger:new())
+    base.classId = base.classId + 1
+    self.classId = base.classId
     return self
+end
+
+function base:getClassName()
+    return self.className
+end
+
+function base:getClassId()
+    return self.classId
+end
+
+function base:getMethod(key)
+    if self[key] and type(self[key]) == "function" then
+        return self[key]
+    end
 end
 
 --[[
@@ -554,7 +569,6 @@ end
 @authors Wizard
 
 @description
-builds a new instnace of a database object that holds all of the object data defined in the mission
 
 @features
 
@@ -563,66 +577,138 @@ builds a new instnace of a database object that holds all of the object data def
 ]]
 
 
-databases = {}
+database = {}
 
-function databases:new()
-    local self = util:inheritParent(self, base)
+database.categoryId = {
+    ["plane"] = Unit.Category.AIRPLANE,
+    ["helicopter"] = Unit.Category.HELICOPTER,
+    ["vehicle"] = Unit.Category.GROUND_UNIT,
+    ["ship"] = Unit.Category.SHIP,
+}
+
+database.coalitionName = {
+    [0] = "NEUTRAL",
+    [1] = "RED",
+    [2] = "BLUE"
+}
+
+function database:new()
+    local self = util:inheritParent(self, base:new())
     self:registerGroups()
-    self:registerStatics()
     self:registerUnits()
-    self:registerPlayers()
-    self:registerClients()
-    self:registerPayloads()
-    self:registerLiverys()
+    self:registerStatics()
     self:registerAirbases()
     self:registerZones()
+    self:registerPlayers()
+    self:registerClients()
+    --self:registerLiverys()
+    --self:registerPayloads()
     return self
 end
 
-function databases:getObject(name)
+function database:getObject(objectName)
     for _, database in pairs(self) do
         if type(database) == "table" then
-            if database[name] then
-                return util:deepCopy(database[name])
+            if database[objectName] then
+                return util:deepCopy(database[objectName])
             end
         end
     end
 end
 
-function databases:getObjectFromDatabase(database, name)
-    if self[database] then
-        if self[database][name] then
-            return util:deepCopy(self[database][name])
-        end
+function database:getGroupObject(groupName)
+    if self.groupsByName[groupName] then
+        return util:deepCopy(self.groupsByName[groupName])
     end
 end
 
-function databases:addObjectToDatabase(database, object)
-    if self[database] then
-        self[database][object.name] = util:deepCopy(object)
-        self:debug("databases:addObjectToDatabase(): %s database registered new object %s", database, object.name)
+function database:getUnitObject(unitName)
+    if self.unitsByName[unitName] then
+        return util:deepCopy(self.unitsByName[unitName])
     end
+end
+
+function database:getStaticObject(staticName)
+    if self.staticsByName[staticName] then
+        return util:deepCopy(self.staticsByName[staticName])
+    end
+end
+
+function database:getAirbaseObject(airbaseName)
+    if self.airbasesByName[airbaseName] then
+        return util:deepCopy(self.airbasesByName[airbaseName])
+    end
+end
+
+function database:getZoneObject(zoneName)
+    if self.zonesByName[zoneName] then
+        return util:deepCopy(self.zonesByName[zoneName])
+    end
+end
+
+function database:getPlayerObject(unitName)
+    if self.playersByUnitName[unitName] then
+        return util:deepCopy(self.playersByUnitName[unitName])
+    end
+end
+
+function database:getClientObject(unitName)
+    if self.clientsByUnitName[unitName] then
+        return util:deepCopy(self.clientsByUnitName[unitName])
+    end
+end
+
+function database:addGroupObject(groupObject)
+    self.groupsByName[groupObject.name] = util:deepCopy(groupObject)
     return self
 end
 
-function databases:removeObjectFromDatabase(database, object)
-    if self[database] then
-        if self[database][object.name] then
-            self[database][object.name] = nil
-            self:debug("databases:removeObjectFromDatabase(): %s database removed object %s", database, object.name)
-        end
-    end
+function database:addUnitObject(unitObject)
+    self.unitsByName[unitObject.name] = util:deepCopy(unitObject)
     return self
 end
 
-function databases:registerGroups()
-    local groupCategory = {
-        ["plane"] = 0,
-        ["helicopter"] = 1,
-        ["vehicle"] = 2,
-        ["ship"] = 3,
-        ["train"] = 4
-    }
+function database:addStaticObject(staticObject)
+    self.staticsByName[staticObject.name] = util:deepCopy(staticObject)
+    return self
+end
+
+function database:addAirbaseObject(airbaseObject)
+    self.airbasesByName[airbaseObject.name] = util:deepCopy(airbaseObject)
+    return self
+end
+
+function database:addZoneObject(zoneObject)
+    self.zonesByName[zoneObject.name] = util:deepCopy(zoneObject)
+    return self
+end
+
+function database:removeGroupObject(groupObject)
+    self.groupsByName[groupObject.name] = nil
+    return self
+end
+
+function database:removeUnitObject(unitObject)
+    self.unitsByName[unitObject.name] = nil
+    return self
+end
+
+function database:removeStaticObject(staticObject)
+    self.staticsByName[staticObject.name] = nil
+    return self
+end
+
+function database:removeAirbaseObject(airbaseObject)
+    self.airbasesByName[airbaseObject.name] = nil
+    return self
+end
+
+function database:removeZoneObject(zoneObject)
+    self.zonesByName[zoneObject.name] = nil
+    return self
+end
+
+function database:registerGroups()
     self.groupsByName = {}
     for sideName, coalitionData in pairs(env.mission.coalition) do
         if sideName == "neutrals" then sideName = "neutral" end
@@ -630,13 +716,15 @@ function databases:registerGroups()
             if coalitionData.country then
                 for _, countryData in pairs(coalitionData.country) do
                     for categoryName, objectData in pairs(countryData) do
-                        if categoryName == "plane" or categoryName == "helicopter" or categoryName == "vehicle" or categoryName == "ship" or categoryName == "train" then
+                        if categoryName == "plane" or categoryName == "helicopter" or categoryName == "vehicle" or categoryName == "ship" then
                             for _, groupData in pairs(objectData.group) do
                                 self.groupsByName[groupData.name] = util:deepCopy(groupData)
-                                self.groupsByName[groupData.name].coalition = coalition.side[sideName:upper()]
+                                self.groupsByName[groupData.name].coalitionId = coalition.side[sideName:upper()]
+                                self.groupsByName[groupData.name].coalitionName = sideName:upper()
                                 self.groupsByName[groupData.name].countryId = countryData.id
-                                self.groupsByName[groupData.name].category = groupCategory[categoryName]
-                                self:info("databases:registerGroups(): registered group %s", groupData.name)
+                                self.groupsByName[groupData.name].countryName = countryData.name
+                                self.groupsByName[groupData.name].categoryId = self.categoryId[categoryName]
+                                self:info("database:registerGroups(): registered group %s", groupData.name)
                             end
                         end
                     end
@@ -647,7 +735,38 @@ function databases:registerGroups()
     return self
 end
 
-function databases:registerStatics()
+function database:registerUnits()
+    self.unitsByName = {}
+    for sideName, coalitionData in pairs(env.mission.coalition) do
+        if sideName == "neutrals" then sideName = "neutral" end
+        if type(coalitionData) == "table" then
+            if coalitionData.country then
+                for _, countryData in pairs(coalitionData.country) do
+                    for categoryName, objectData in pairs(countryData) do
+                        if categoryName == "plane" or categoryName == "helicopter" or categoryName == "vehicle" or categoryName == "ship" then
+                            for _, groupData in pairs(objectData.group) do
+                                for _, unitData in pairs(groupData.units) do
+                                    self.unitsByName[unitData.name] = util:deepCopy(unitData)
+                                    self.unitsByName[unitData.name].group = util:deepCopy(groupData)
+                                    self.unitsByName[unitData.name].typeName = unitData.type
+                                    self.unitsByName[unitData.name].coalitionId = coalition.side[sideName:upper()]
+                                    self.unitsByName[unitData.name].coalitionName = coalition.side[sideName:upper()]
+                                    self.unitsByName[unitData.name].countryId = countryData.id
+                                    self.unitsByName[unitData.name].countryName = countryData.name
+                                    self.unitsByName[unitData.name].categoryId = self.categoryId[categoryName]
+                                    self:info("database:registerUnits(): registered unit %s", unitData.name)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return self
+end
+
+function database:registerStatics()
     self.staticsByName = {}
     for sideName, coalitionData in pairs(env.mission.coalition) do
         if sideName == "neutrals" then sideName = "neutral" end
@@ -657,10 +776,17 @@ function databases:registerStatics()
                     for objectCategory, objectData in pairs(countryData) do
                         if objectCategory == "static" then
                             for _, staticData in pairs(objectData.group) do
-                                self.staticsByName[staticData.name] = util:deepCopy(staticData.units)
-                                self.staticsByName[staticData.name].coalition = coalition.side[sideName:upper()]
-                                self.staticsByName[staticData.name].countryId = countryData.id
-                                self:info("databases:registerStatics(): registered static %s", staticData.name)
+                                local staticName = staticData.units[1].name
+                                local staticCategory = StaticObject.getByName(staticName):getDesc().category
+                                self.staticsByName[staticName] = util:deepCopy(staticData.units)
+                                self.staticsByName[staticName].name = staticName
+                                self.staticsByName[staticName].typeName = staticData.type
+                                self.staticsByName[staticName].coalitionId = coalition.side[sideName:upper()]
+                                self.staticsByName[staticName].coalitionName = sideName:upper()
+                                self.staticsByName[staticName].countryId = countryData.id
+                                self.staticsByName[staticName].countryName = countryData.name
+                                self.staticsByName[staticName].categoryId = staticCategory
+                                self:info("database:registerStatics(): registered static %s", staticName)
                             end
                         end
                     end
@@ -671,87 +797,72 @@ function databases:registerStatics()
     return self
 end
 
-function databases:registerUnits()
-    self.unitsByName = {}
-    for _, groupData in pairs(self.groupsByName) do
-        for _, unitData in pairs(groupData.units) do
-            if unitData.skill ~= "Client" and unitData.skill ~= "Player" then -- this exception still collects them, it makes no sense
-                self.unitsByName[unitData.name] = util:deepCopy(unitData)
-                self:info("databases:registerUnits(): registered unit %s", unitData.name)
-            end
-        end
-    end
-    return self
-end
-
-function databases:registerPlayers()
-    self.playersByUnitName = {}
-    for _, unitData in pairs(self.unitsByName) do
-        if unitData.skill == "Player" then
-            self.playersByUnitName[unitData.name] = util:deepCopy(unitData)
-            self:info("databases:registerPlayers(): registered player unit %s", unitData.name)
-        end
-    end
-    return self
-end
-
-function databases:registerClients()
-    self.clientsByUnitName = {}
-    for _, unitData in pairs(self.unitsByName) do
-        if unitData.skill == "Client" then
-            self.clientsByUnitName[unitData.name] = util:deepCopy(unitData)
-            self:info("databases:registerClients(): registered client unit %s", unitData.name)
-        end
-    end
-    return self
-end
-
-function databases:registerPayloads()
-    self.payloadsByUnitName = {}
-    for _, unitData in pairs(self.unitsByName) do
-        if unitData.payload then
-            self.payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
-            self:info("databases:registerPayloads(): registered payload from unit %s", unitData.name)
-        end
-    end
-    return self
-end
-
-function databases:registerLiverys()
-    self.liverysByUnitName = {}
-    for _, unitData in pairs(self.unitsByName) do
-        if unitData.livery_id then
-            self.liverysByUnitName[unitData.name] = util:deepCopy(unitData.livery_id)
-            self:info("databases:registerLiverys(): registered livery from unit %s", unitData.name)
-        end
-    end
-    return self
-end
-
-function databases:registerAirbases()
+function database:registerAirbases()
     self.airbasesByName = {}
     for _, airdrome in pairs(world.getAirbases()) do
         local airbaseName = airdrome:getName()
         self.airbasesByName[airbaseName] = {
             ["name"] = airbaseName,
+            ["typeName"] = airdrome:getTypeName(),
             ["desc"] = airdrome:getDesc(),
             ["id"] = airdrome:getID(),
-            ["point"] = airdrome:getPoint(),
-            ["category"] = airdrome:getDesc().category,
-            ["coalition"] = airdrome:getCoalition(),
-            ["countryId"] = airdrome:getCountry(),
+            ["categoryId"] = airdrome:getDesc().category
         }
-        self:info("databases:registerAirbases(): registered airbase %s", airbaseName)
+        self:info("database:registerAirbases(): registered airbase %s", airbaseName)
     end
     return self
 end
 
-function databases:registerZones()
+function database:registerZones()
     self.zonesByName = {}
     for _, zones in pairs(env.mission.triggers) do
         for _, zoneData in pairs(zones) do
             self.zonesByName[zoneData.name] = util:deepCopy(zoneData)
-            self:info("databases:registerZones(): registered trigger zone %s", zoneData.name)
+            self:info("database:registerZones(): registered trigger zone %s", zoneData.name)
+        end
+    end
+    return self
+end
+
+function database:registerPlayers()
+    self.playersByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.skill == "Player" then
+            self.playersByUnitName[unitData.name] = util:deepCopy(unitData)
+            self:info("database:registerPlayers(): registered player unit %s", unitData.name)
+        end
+    end
+    return self
+end
+
+function database:registerClients()
+    self.clientsByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.skill == "Client" then
+            self.clientsByUnitName[unitData.name] = util:deepCopy(unitData)
+            self:info("database:registerClients(): registered client unit %s", unitData.name)
+        end
+    end
+    return self
+end
+
+function database:registerPayloads()
+    self.payloadsByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.payload then
+            self.payloadsByUnitName[unitData.name] = util:deepCopy(unitData.payload)
+            self:info("database:registerPayloads(): registered payload from unit %s", unitData.name)
+        end
+    end
+    return self
+end
+
+function database:registerLiverys()
+    self.liverysByUnitName = {}
+    for _, unitData in pairs(self.unitsByName) do
+        if unitData.livery_id then
+            self.liverysByUnitName[unitData.name] = util:deepCopy(unitData.livery_id)
+            self:info("database:registerLiverys(): registered livery from unit %s", unitData.name)
         end
     end
     return self
@@ -877,7 +988,7 @@ fsm = {}
 - @return #fsm
 ]]
 function fsm:new()
-    local self = util:inheritParent(self, base)
+    local self = util:inheritParent(self, base:new())
     self.options = {}
     self.options.subs = {}
     self.current = 'none'
@@ -1536,7 +1647,7 @@ end
 the birth class is a wrapper for the DCS SSE API coalition.addGroup, providing the ability to birth unlimited groups
 dynamically from singular templates set to be late activated via the mission editor. These templates will carry over
 all the data related to it, including individual units/payloads/liveries/routes/tasks/etc. These templates can be
-changed further by the methods provided in the class, with methods such as birthFromAirbase you can alter which
+changed further by the methods provided in the class. with methods such as birthFromAirbase you can alter which
 airbase an AI Aircraft will be born at along with unique parking spots and takeoff methods without even having
 the template placed there.
 
@@ -1559,10 +1670,10 @@ the template placed there.
 
 birth = {}
 birth.takeoff = {
-    ["runway"] = {name = "Takeoff from runway",type = "TakeOff", action = "From Runway"},
-    ["hot"] = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
-    ["cold"] = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
-    ["air"] = {name = "Turning point", type = "Turning Point", action = "Turning Point" }
+    ["runway"] = {name = "Takeoff from runway",      type = "TakeOff",           action = "From Runway"},
+    ["hot"]    = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
+    ["cold"]   = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
+    ["air"]    = {name = "Turning point",            type = "Turning Point",     action = "Turning Point" }
 }
 
 --[[ create a new instance of a birth object
@@ -1572,17 +1683,17 @@ birth.takeoff = {
 ]]
 
 function birth:new(groupName)
-    if not database.groupsByName[groupName] then
-        base:error("birth:new(): group %s cannot be found in the database", groupName)
-        return
+    local self = util:inheritParents(self, {base:new(), handler:new()})
+    local template = databases:getGroupObject(groupName)
+    if not template then
+        self:error("birth:new(): group %s cannot be found in the database", groupName)
+        return self
     end
-    local self = util:inheritParents(self, {base, handler:new(), group})
     self.templateName = groupName
-    self.template = util:deepCopy(database.groupsByName[groupName])
-    self.groupTemplate = util:deepCopy(self.template)
-    self.countryId = self.groupTemplate.countryId
-    self.category = self.groupTemplate.category
-    self.coalition = self.groupTemplate.coalition
+    self.template = template
+    self.countryId = self.template.countryId
+    self.category = self.template.category
+    self.coalition = self.template.coalition
     self.count = 0
 
     self.keepGroupName = nil
@@ -1592,9 +1703,9 @@ function birth:new(groupName)
     self.unitLimit = nil
     self.groupName = nil
 
-    self.groupTemplate.countryId = nil
-    self.groupTemplate.category = nil
-    self.groupTemplate.coalition = nil
+    self.template.countryId = nil
+    self.template.category = nil
+    self.template.coalition = nil
 
     self.bornGroups = {}
     self.bornUnits = {}
@@ -1604,7 +1715,7 @@ end
 
 function birth:handleEvent(event)
     self:debug("birth:handleEvent(): handling event %s", event.name)
-    self:handleGroupEvent(self, event, self.templateName or self.alias)
+    self:handleGroupEvent(self, event, self.alias or self.templateName)
     return self
 end
 
@@ -1626,15 +1737,15 @@ function birth:setLimit(groupLimit, unitLimit)
 end
 
 function birth:setPayload(unitId, unitName)
-    if not database.payloadsByUnitName[unitName] then self:error("birth:setPayload(): could not find %s in database", unitName) return end
-    local unitPayload = util:deepCopy(database.payloadsByUnitName[unitName])
+    if not databases.payloadsByUnitName[unitName] then self:error("birth:setPayload(): could not find %s in database", unitName) return end
+    local unitPayload = util:deepCopy(databases.payloadsByUnitName[unitName])
     self.template.units[unitId].payload = unitPayload
     return self
 end
 
 function birth:setLivery(unitId, unitName)
-    if not database.liverysByUnitName[unitName] then self:error("birth:setLivery(): could not find %s in database", unitName) return end
-    local unitLivery = util:deepCopy(database.liverysByUnitName[unitName])
+    if not databases.liverysByUnitName[unitName] then self:error("birth:setLivery(): could not find %s in database", unitName) return end
+    local unitLivery = util:deepCopy(databases.liverysByUnitName[unitName])
     self.template.units[unitId].livery_id = unitLivery
     return self
 end
@@ -1645,8 +1756,8 @@ function birth:setCountry(countryName)
     return self
 end
 
-function birth:birthToWorld()
-    self:debug("birth:birthToWorld(): preparing template %s for birth", self.templateName)
+function birth:birth()
+    self:debug("birth:birth(): preparing template %s for birth", self.templateName)
     self:_initialize()
     return self
 end
@@ -1672,11 +1783,11 @@ function birth:birthFromVec3(vec3, alt)
         alt = alt
     end
 
-    for _, unitData in pairs(self.groupTemplate.units) do
+    for _, unitData in pairs(self.template.units) do
         local sX = unitData.x or 0
         local sY = unitData.y  or 0
-        local bX = self.groupTemplate.route.points[1].x
-        local bY = self.groupTemplate.route.points[1].y
+        local bX = self.template.route.points[1].x
+        local bY = self.template.route.points[1].y
         local tX = vec3.x + (sX - bX)
         local tY = vec3.z + (sY - bY)
         unitData.alt = alt
@@ -1684,9 +1795,9 @@ function birth:birthFromVec3(vec3, alt)
         unitData.y = tY
     end
 
-    self.groupTemplate.route.points[1].alt = alt
-    self.groupTemplate.route.points[1].x = vec3.x
-    self.groupTemplate.route.points[1].y = vec3.z
+    self.template.route.points[1].alt = alt
+    self.template.route.points[1].x = vec3.x
+    self.template.route.points[1].y = vec3.z
 
     self:_initialize()
     return self
@@ -1740,7 +1851,7 @@ end
 function birth:_withinUnitLimit()
     self:debug("birth:_withinUnitLimit(): comparing active units against the unitLimit for template %s", self.templateName)
     self:_updateActiveUnits()
-    if #self.activeUnits + #self.groupTemplate.units <= self.unitLimit then
+    if #self.activeUnits + #self.template.units <= self.unitLimit then
         self:debug("birth:_withinUnitLimit(): returning true, template %s has less active units than the unitLimit", self.templateName)
         return true
     end
@@ -1778,32 +1889,32 @@ function birth:_addGroup()
     if not self.keepGroupName then
         if self.alias then
             self.groupName = self.alias
-            self.groupTemplate.name = self.groupName
+            self.template.name = self.groupName
         else
             self.groupName = self.template.name.." #"..self.count + 1
-            self.groupTemplate.name = self.groupName
+            self.template.name = self.groupName
         end
     end
     if not self.keepUnitNames then
-        for unitId = 1, #self.groupTemplate.units do
-            self.groupTemplate.units[unitId].name = self.groupTemplate.name.."-"..unitId
+        for unitId = 1, #self.template.units do
+            self.template.units[unitId].name = self.template.name.."-"..unitId
         end
     end
-    if self.groupTemplate.lateActivation then
-        self.groupTemplate.lateActivation = false
+    if self.template.lateActivation then
+        self.template.lateActivation = false
     end
-    coalition.addGroup(self.countryId, self.category, self.groupTemplate)
+    coalition.addGroup(self.countryId, self.category, self.template)
     self.count = self.count + 1
     self.bornGroups[#self.bornGroups+1] = self.groupName
-    database:addObjectToDatabase("groupsByName", self.groupTemplate)
-    for _, unitData in pairs(self.groupTemplate.units) do
+    databases:addObjectToDatabase("groupsByName", self.template)
+    for _, unitData in pairs(self.template.units) do
         self.bornUnits[#self.bornUnits+1] = unitData.name
-        database:addObjectToDatabase("unitsByName", unitData)
+        databases:addObjectToDatabase("unitsByName", unitData)
         if unitData.payload then
-            database:addObjectToDatabase("payloadsByUnitName", unitData)
+            databases:addObjectToDatabase("payloadsByUnitName", unitData)
         end
         if unitData.livery_id then
-            database:addObjectToDatabase("liverysByUnitName", unitData)
+            databases:addObjectToDatabase("liverysByUnitName", unitData)
         end
     end
     if self.scheduleTime then
@@ -1814,1831 +1925,227 @@ function birth:_addGroup()
     return self
 end
 
---[[
-
-@class #search
-
-@authors Wizard
-
-@description
-search for a collection of objects to call functions on as a whole. you must use a searchBy method before using a searchFor method.
-
-@features
-
-@created Apr 5, 2022
-
-]]
-
-search = {}
-
---[[ create a new instance of a search object
-- @param #search self
-- @return #search self
-]]
-function search:new()
-    local self = util:inheritParent(self, handler:new())
-    self.database = nil
-    self.filters = {}
-    return self
-end
-
-function search:searchByCoalition(coalition)
-    self.filters.coalition = coalition
-    return self
-end
-
-function search:searchByCategory(category)
-    self.filters.category = category
-    return self
-end
-
-function search:searchByCountry(countryId)
-    self.filters.countryId = countryId
-    return self
-end
-
-function search:searchBySubString(subString)
-    self.subString = subString
-    return self
-end
-
-function search:searchByPrefix(prefix)
-    self.prefix = prefix
-    return self
-end
-
-function search:searchByField(field, value)
-    self.filters[field] = value
-    return self
-end
-
-function search:searchOnce()
-    local objects = {}
-    local filterHit
-    for objectName, objectData in pairs(self.database) do
-        filterHit = true
-        if self.subString then
-            if not string.find(objectName, self.subString) then
-                filterHit = false
-            end
-        end
-
-        if self.prefix then
-            local pfx = string.find(objectName, self.prefix, 1, true)
-            if pfx ~= 1 then
-                filterHit = false
-            end
-        end
-
-        for filterType, filterValue in pairs(self.filters) do
-            local fieldValue = objectData[filterType]
-            if fieldValue ~= filterValue then
-                filterHit = false
-            end
-        end
-
-        if filterHit then
-            objects[#objects+1] = group:getByName(objectName)
-        end
-    end
-    return objects
-end
-
-searchGroup = {}
-
-function searchGroup:new()
-    local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(database.groupsByName)
-    return self
-end
-
-searchUnit = {}
-
-function searchUnit:new()
-    local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(database.unitsByName)
-    return self
-end
-
-searchStatic = {}
-
-function searchStatic:new()
-    local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(database.staticsByName)
-    return self
-end
-
-searchAirbase = {}
-
-function searchAirbase:new()
-    local self = util:inheritParent(self, search:new())
-    self.database = util:deepCopy(database.airbasesByName)
-    return self
-end
-
---[[
-
-@class #zone
-
-@authors Wizard
-
-@description
-
-@features
-
-@created Apr 26, 2022
-
-]]
-
-zone = {}
-
-function zone:getByName(zoneName)
-    if database.zonesByName[zoneName] then
-        local self = util:inheritParent(self, fsm:new())
-        self.zoneName = zoneName
-        self.zoneData = util:deepCopy(database.zonesByName[zoneName])
-        return self
-    end
-end
-
-function zone:getVec2()
-    local vec2 = {}
-    vec2.x = self.zoneData.x
-    vec2.y = self.zoneData.y
-    return vec2
-end
-
-function zone:getVec3()
-    local vec3 = {}
-    vec3.x = self.zoneData.x
-    vec3.y = 0
-    vec3.z = self.zoneData.y
-    return vec3
-end
-
-function zone:getRadius()
-    return self.zoneData.radius
-end
-
-function zone:getID()
-    return self.zoneData.id
-end
-
-function zone:getColor()
-    return self.zoneData.color
-end
-
-function zone:getProperties()
-    return self.zoneData.properties
-end
-
-function zone:isHidden()
-    return self.zoneData.hidden
-end
-
-function zone:getName()
-    return self.zoneName
-end
-
-function zone:getType()
-    return self.zoneData.type
-end
-
-function zone:inZone(vec3)
-    local zoneVec3 = self:getVec3()
-    if ((vec3.x - zoneVec3.x)^2 + (vec3.z - zoneVec3.z)^2)^0.5 <= self.zoneData.radius then
-        return true
-    end
-    return false
-end
-
--- needs to generate a completely unique id
-function zone:draw(coalition, lineColor, fillColor, lineType, readOnly, message)
-    --local drawingId = generateMarkId()
-    if self.drawingId then -- undraw an existing one
-        self:undraw()
-    end
-    --self.drawingId = drawingId -- storing for later when it comes time to undraw
-    if self.zoneData.type == 2 then
-        local quad = {}
-        quad[#quad+1] = coalition
-        quad[#quad+1] = 1 --drawingId
-        quad[#quad+1] = self.zoneData.verticies[1]
-        quad[#quad+1] = self.zoneData.verticies[2]
-        quad[#quad+1] = self.zoneData.verticies[3]
-        quad[#quad+1] = self.zoneData.verticies[4]
-        quad[#quad+1] = lineColor
-        quad[#quad+1] = fillColor
-        quad[#quad+1] = lineType
-        quad[#quad+1] = readOnly or false
-        quad[#quad+1] = message or nil
-        trigger.action.quadToAll(unpack(quad))
-    else
-        local circle = {}
-        local center = self:getVec3()
-        circle[#circle+1] = coalition
-        circle[#circle+1] = 1 --drawingId
-        circle[#circle+1] = center
-        circle[#circle+1] = self.zoneData.radius
-        circle[#circle+1] = lineColor
-        circle[#circle+1] = fillColor
-        circle[#circle+1] = lineType
-        circle[#circle+1] = readOnly or false
-        circle[#circle+1] = message or nil
-        trigger.action.circleToAll(unpack(circle))
-    end
-    return self
-end
-
-function zone:undraw()
-    if self.drawingId then
-        trigger.action.removeMark(self.drawingId)
-        self.drawingId = nil
-    end
-    return self
-end
-
 --
 --
 -- ** classes : wrapper **
 --
 --
 
---[[
+object = {}
 
-@class #unit
-
-@authors Wizard
-
-@description
-wrapper functions for DCS Class Unit with additional methods available.
-
-@features
-
-@todo
-- document
-- readme
-- debugging
-
-@created Feb 6, 2022
-
-]]
-
-unit = {}
-
---[[ create a new instance of a unit object
-- @param #unit self
-- @param #string unitName
-- @return #unit self
-]]
-function unit:getByName(unitName)
-    if database.unitsByName[unitName] then
-        local self = util:inheritParent(self, handler:new())
-        self.unitName = unitName
-        self.unitTemplate = util:deepCopy(database.unitsByName[unitName])
+function object:getByName(objectName)
+    local self = util:inheritParent(self, base:new())
+    local object = databases:getObject(objectName)
+    if not object then
+        self:error("object:new(): object %s could not be found in the database", objectName)
         return self
     end
-    return nil
-end
-
---
---
--- ** ssf class #unit methods ** --
---
---
---[[ handle a specific event for the #unit object
-- @param #unit self
-- @param #enum event [the event that will be triggered for the #unit object]
-- @return #unit self
-]]
-function unit:handleEvent(event)
-    self:handleUnitEvent(self, event, self:getName())
+    self.objectName = objectName
+    self.object = object
     return self
 end
 
---[[ return the #group object that the #unit object is in
-- @param #unit self
-- @return #group self
-]]
-function unit:getGroup()
-    local unitGroupName = self.unitTemplate.groupName
-    local group = group:getByName(unitGroupName)
-    if group then
-        return group
+function object:getCoalition()
+    return self.object.coalitionId, self.object.coalitionName
+end
+
+function object:getCountry()
+    return self.object.countryId, self.object.countryName
+end
+
+function object:getCategory()
+    return self.object.categoryId
+end
+
+function object:getName()
+    return self.objectName
+end
+
+function object:isExist()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.isExist(dcsObject)
     end
-    return nil
 end
 
---[[ return the #unit object payload table
-- note: this function does not obtain a *current* payload, only what is set via the mission editor
-- @param #unit self
-- @param #string unitName (optional) [the unit name to return the payload from, if nil return for self]
-- @return #table payload
-]]
-function unit:getPayload(unitName)
-    local name = unitName or self.unitName
-    if database.payloadsByUnitName[name] then
-        local payload = util:deepCopy(database.payloadsByUnitName[unitName])
-        return payload
+function object:destroy()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.destroy(dcsObject)
     end
-    return nil
 end
 
---[[ return the current livery namne for the #unit object
-- @param #unit self
-- @return #string liveryName
-]]
-function unit:getLivery()
-    local liveryName = self.unitTemplate.livery_id
-    return liveryName
+function object:getTypeName()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.getTypeName(dcsObject)
+    end
 end
 
---[[ return the dcs class #Unit from the #unit object
-- @param #unit self
-- @return dcs class #Unit
-]]
-function unit:getDCSUnit()
+function object:getDesc()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.getDesc(dcsObject)
+    end
+end
+
+function object:hasAttribute(attribute)
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.hasAttribute(attribute)
+    end
+end
+
+function object:getPoint()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.getPoint(dcsObject)
+    end
+end
+
+function object:getPosition()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.getPosition(dcsObject)
+    end
+end
+
+function object:getVelocity()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.getVelocity(dcsObject)
+    end
+end
+
+function object:inAir()
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.inAir(dcsObject)
+    end
+end
+
+scenery = {}
+
+function scenery:getByName(sceneryName)
+    local self = util:inheritParents(self, {base:new(), handler:new(), object})
+    self.sceneryName = sceneryName
+    self.dcsObject = {id_ = sceneryName}
+    return self
+end
+
+function scenery:getDescByName()
+    local typeName = SceneryObject.getTypeName(self.dcsObject)
+    if typeName then
+        local desc = SceneryObject.getDescByName(typeName)
+        if desc then
+            return desc
+        end
+    end
+end
+
+function scenery:getDCSObject()
+    return self.dcsObject
+end
+
+function scenery:getLife()
+    return SceneryObject.getLife(self.dcsObject)
+end
+
+function scenery:getCategory()
+    return self:getDesc().category
+end
+
+function scenery:getName()
+    return self.sceneryName
+end
+
+unit = {}
+
+function unit:getByName(unitName)
+    local self = util:inheritParents(self, {object:getByName(unitName), handler:new()})
+    if not self.object then
+        self:error("unit:getByName(): unit object %s could not be found in the database", unitName)
+        return self
+    end
+    self.unitName = unitName
+    return self
+end
+
+function unit:getDescByName()
+    return Unit.getDescByName(self.object.typeName)
+end
+
+function unit:getDCSObject()
     local dcsUnit = Unit.getByName(self.unitName)
     if dcsUnit then
         return dcsUnit
     end
-    return nil
 end
-
---[[ return the country of the #unit object
-- @param #unit self
-- @return #number countryId
-]]
-function unit:getCountry()
-    local countryId = self.unitTemplate.countryId
-    return countryId
-end
-
---[[ return a boolean if the #unit object is alive or not
-- @param #unit self
-- @return #boolean alive [true if the #unit is alive]
-]]
-function unit:isAlive()
-    if self:isActive() and self:isExist() and self:getLife() > 0 then
-        return true
-    end
-    return false
-end
-
---[[ return a boolean the #group object is in a zone
-- @param #group self
-- @param #string zoneName [the name of the zone to check if the #group object is inside]
-- @param #boolean allOfGroupInZone [if true, the entire group must be in the zone to return true]
-- @return #boolean
-]]
-function unit:inZone(zoneName)
-    local triggerZone = zone:getByName(zoneName)
-    if triggerZone then
-        local inZone = triggerZone:inZone(self:getPoint())
-        return inZone
-    end
-    return false
-end
-
--- ** dcs class #Unit Wrapper Methods ** --
-
---[[ return a boolean if the #unit is currently activated or not
-- @param #unit self
-- @return #boolean [true if the #unit is now activated where it was previously late activated]
-]]
-function unit:isActive()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:isActive()
-    end
-    return nil
-end
-
---[[ return the players name in control of the #unit
-- @param #unit self
-- @return #string playerName [returns the name of a player if they are occupied in the #unit
-]]
-function unit:getPlayerName()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        local playerName = unit:getPlayerName()
-        if playerName then
-            return playerName
-        end
-    end
-    return nil
-end
-
---[[ return the unique object identifier given to the #unit object
-- @param #unit self
-- @return #number
-]]
-function unit:getID()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getID()
-    end
-    return nil
-end
-
---[[ return the default index of the #unit object within the group
-- @param #unit self
-- @return #number
-]]
-function unit:getNumber()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getNumber()
-    end
-    return nil
-end
-
---[[ return the dcs class #Controller from the #unit object
-- @param #unit self
-- @return dcs class #Controller
-]]
-function unit:getController()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getController()
-    end
-    return nil
-end
-
---[[ return the dcs class #Group from the #unit object
-- @param #unit self
-- @return dcs class #Group
-]]
-function unit:getDCSGroup()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getGroup()
-    end
-    return nil
-end
-
---[[ return the callsign of the #unit object
-- @param #unit self
-- @return #string
-]]
-function unit:getCallsign()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getCallsign()
-    end
-    return nil
-end
-
---[[ return the current life of the #unit object
--- less than 1 is considered dead
-- @param #unit
-- @return #number
-]]
-function unit:getLife()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getLife()
-    end
-    return nil
-end
-
---[[ return the default max life value
-- @param #unit self
-- @return #number
-]]
-function unit:getLife0()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getLife0()
-    end
-    return nil
-end
-
---[[ return the current fuel remaining as a percentage
-- @param #unit self
-- @return #number [eg; 0.55]
-]]
-function unit:getFuel()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getFuel()
-    end
-    return nil
-end
-
---[[ return an ammo table containing a description table
-- @param #unit self
-- @return #table
-]]
-function unit:getAmmo()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getAmmo()
-    end
-    return nil
-end
-
---[[ return a table containing the sesnors onboard
-- @param #unit self
-- @param #table
-]]
-function unit:getSensors()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getSensors()
-    end
-    return nil
-end
-
---[[ return a boolean if the #unit has sensors
-- @param #unit self
-- @return #boolean [true if unit has sensors]
-]]
-function unit:hasSensors()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:hasSensors()
-    end
-    return nil
-end
-
---[[ return a boolean if the #units radar is working as well as the actively tracked target dcs class #Object
-- @param #unit self
-- @return #boolean, dcs class #Object
-example:
-local ewrUnit = unit:getByName("EWR South")
-local radarOnline, trackedUnit = ewrUnit:getRadar()
-if radarOnline then
-    local trackedUnitVec3 = trackedUnit:getPoint()
-    if util:getDistance(playerVec3, trackedUnitVec3) <= 1500 then
-        -- player is within 1500m, engage
-    end
-end
-]]
-function unit:getRadar()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getRadar()
-    end
-    return nil
-end
-
---[[ return the current value for an animation argument for the external model of the #unit object
-- @param #unit self
-- @return #number [-1 to 1+]
-]]
-function unit:getDrawArgumentValue()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getDrawArgumentValue()
-    end
-    return nil
-end
-
---[[ returns an array of friendly cargo objects sorted by distance from the #unit object
-- only works for helicopters
-- @param #unit self
-- @return #array dcs class #Objects
-]]
-function unit:getNearestCargos()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getNearestCargos()
-    end
-    return nil
-end
-
---[[ enable the radar emission for the #unit
-- @param #unit self
-- @param #boolean [true or false to toggle the emission of a radar]
-- @return #unit self
-]]
-function unit:enableEmission(bool)
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:enableEmission(bool)
-    end
-    return nil
-end
-
---[[ return the amount of infantry that can embark onto the #unit object
-- only for airplanes and helopters
-- @param #unit self
-- @return #number
-]]
-function unit:getDescentCapacity()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getDescentCapacity()
-    end
-    return nil
-end
-
---[[ return a boolean if the #unit object currently exists or not
-- @param #unit self
-- @return #boolean [true if currently exists]
-]]
-function unit:isExist()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:isExist()
-    end
-    return nil
-end
-
---[[ destroy the #unit object with no explosion
-- @param #unit self
-- @return #unit self
-]]
-function unit:destroy()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        dcsUnit:destroy()
-    end
-    return self
-end
-
---[[ return the category of the #unit object
-- @param #unit self
-- @return #enum [eg; 1 for airplane]
-]]
-function unit:getCategory()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getDesc().category
-    end
-    return nil
-end
-
---[[ return the coalition of the #unit object
-- @param #unit self
-- @return #enum [eg; 1 for red, 2 for blue, 0 for neutral]
-]]
-function unit:getCoalition()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getCoalition()
-    end
-    return nil
-end
-
---[[ return the type name from the #unit object
-- @param #unit self
-- @return #string [the #unit type name. eg; "Mi-8"]
-]]
-function unit:getTypeName()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getTypeName()
-    end
-    return nil
-end
-
---[[ return the description table from the #unit object
-- @param #unit self
-- @return #array
-]]
-function unit:getDesc()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getDesc()
-    end
-    return nil
-end
-
---[[ return a boolean if the #unit object has a specific attribute
-- @param #unit self
-- @param #string attribute [eg; "Planes"]
-]]
-function unit:hasAttribute(attribute)
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:hasAttribute(attribute)
-    end
-    return nil
-end
-
---[[ return the name of the #unit object
-- @param #unit self
-- @return #string
-]]
-function unit:getName()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getName()
-    end
-    return nil
-end
-
---[[ return the current vec3 of the #unit object
-- @param #unit self
-- @return #table
-]]
-function unit:getPoint()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getPoint()
-    end
-    return nil
-end
-
---[[ return the current orientation vectors from the #unit object
-- returns positional orientation in 3D space
-- @param #unit self
-- @return #table
-]]
-function unit:getPosition()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getPosition()
-    end
-    return nil
-end
-
---[[ return the vec3 velocity vectors from the #unit object
-- @param #unit self
-- @return #table
-]]
-function unit:getVelocity()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:getVelocity()
-    end
-    return nil
-end
-
---[[ return a #unit objects description table by type name
-- @param #string unitTypeName
-- @return #table
-]]
-function unit.getDescByName(unitTypeName)
-    return Unit.getDescByName(unitTypeName) or nil
-end
-
---[[ return a boolean if the #unit object is in air or not
-- @param #unit self
-- @return #boolean
-]]
-function unit:inAir()
-    local dcsUnit = self:getDCSUnit()
-    if dcsUnit then
-        return dcsUnit:inAir()
-    end
-    return nil
-end
-
---[[
-
-@class #airbase
-
-@authors Wizard
-
-@description
-wrapper functions for DCS Class Airbase with additional methods available.
-
-@features
-
-@todo
-
-@created Apr 4, 2022
-
-]]
 
 airbase = {}
 
---[[ create a new instance of a airbase object
-- @param #airbase self
-- @param #string airbaseName [eg; "Sochi-Adler"]
-- @return #airbase self
-]]
 function airbase:getByName(airbaseName)
-    if database.airbasesByName[airbaseName] then
-        local self = util:inheritParent(self, handler:new())
-        self.airbaseName = airbaseName
-        self.airbaseTemplate = util:deepCopy(database.airbasesByName[airbaseName])
+    local self = util:inheritParents(self, {object:getByName(airbaseName), handler:new()})
+    if not self.object then
+        self:error("airbase:getByName(): unit object %s could not be found in the database", airbaseName)
         return self
     end
-    return nil
-end
-
--- ** ssf class #airbase methods ** --
-
---[[ return the #unit object if the airbase is a helipad or ship
-- @param #airbase self
-- @return #unit self
-]]
-function airbase:getUnit()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        local dcsAirbaseUnit = dcsAirbase:getUnit()
-        if dcsAirbaseUnit then
-            local dcsAirbaseUnitName = dcsAirbaseUnit:getName()
-            local airbase_unit = unit:getByName(dcsAirbaseUnitName)
-            if airbase_unit then
-                return airbase_unit
-            end
-        end
-    end
-    return nil
-end
-
---[[ return the dcs class #Airbase from the #airbase object
-- @param #airbase self
-- @return dcs class #Airbase
-]]
-function airbase:getDCSAirbase()
-    local dcsAirbase = Airbase.getByName(self.airbaseName)
-    if dcsAirbase then
-        return dcsAirbase
-    end
-    return nil
-end
-
--- ** dcs class #Airbase methods ** --
-
---[[ return the description table from the #airbase object
-- @param #airbase self
-- @return #array
-]]
-function airbase:getDesc()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getDesc()
-    end
-    return nil
-end
-
---[[ return the callsign of the #airbase object
-- airbase names are defined in game, while farps and ships can be configured via mission editor
-- @param #airbase self
-- @return #string
-]]
-function airbase:getCallsign()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getCallsign()
-    end
-    return nil
-end
-
---[[ return the dcs class #Unit from the #airbase object
-- @param #airbase self
-- @return dcs class #Airbase]]
-function airbase:getDCSUnit()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        local dcsAirbaseUnit = dcsAirbase:getUnit()
-        if dcsAirbaseUnit then
-            return dcsAirbaseUnit
-        end
-    end
-    return nil
-end
-
---[[ return the unique object identifier given to the #airbase object
-- @param #airbase self
-- @return #number
-]]
-function airbase:getID()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getID()
-    end
-    return nil
-end
-
---[[ return a table of parking data for the #airbase object
-- @param #airbase self
-- @param #boolean [true for only availble parking spots]
-]]
-function airbase:getParking(available)
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getParking(available)
-    end
-    return nil
-end
-
---[[ return a table with runway information for the #airbase object
-- length, width, course, and name
-- @param #airbase self
-- @return #table
-]]
-function airbase:getRunways()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getRunways()
-    end
-    return nil
-end
-
---[[ return a vec3 table from the objectType param for the #airbase object
-- only returns the airbase "Tower"
-- @param #airbase self
-- @param #number or #string objectType
-- @return #table
-]]
-function airbase:getTechObjectPos(objectType)
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getRunways()
-    end
-    return nil
-end
-
---[[ return a boolean if the #airbase objects radio has been silenced
-- @param #airbase self
-- @return #boolean
-]]
-function airbase:getRadioSilentMode()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getRadioSilentMode()
-    end
-    return nil
-end
-
---[[ set the ATC for the #airbase object to be silent
-- stops atc from transmitting completely
-- @param #airbase self
-- @param #boolean silenced [ if true disabled atc communications]
-- @return #boolean
-]]
-function airbase:setRadioSilentMode(silenced)
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:setRadioSilentMode(silenced)
-    end
-    return nil
-end
-
---[[ return a boolean if the #airbase object currently exists or not
-- @param #airbase self
-- @return #boolean [true if currently exists]
-]]
-function airbase:isExist()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:isExist()
-    end
-    return nil
-end
-
---[[ destroy the #airbase object with no explosion
-- @param #airbase self
-- @return #airbase self
-]]
-function airbase:destroy()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        dcsAirbase:destroy()
-    end
+    self.airbaseName = airbaseName
     return self
 end
 
---[[ return the category of the #airbase object
-- @param #airbase self
-- @return #enum [eg; 1 for airplane]
-]]
-function airbase:getCategory()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getDesc().category
+function airbase:getDCSObject()
+    local dcsObject = Airbase.getByName(self.airbaseName)
+    if dcsObject then
+        return dcsObject
     end
-    return nil
 end
-
---[[ return the coalition of the #airbase object
-- @param #airbase self
-- @return #enum [eg; 1 for red, 2 for blue, 0 for neutral]
-]]
-function airbase:getCoalition()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getCoalition()
-    end
-    return nil
-end
-
---[[ return the type name from the #airbase object
-- @param #airbase self
-- @return #string [the #airbase type name. eg; "FARP"]
-]]
-function airbase:getTypeName()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getTypeName()
-    end
-    return nil
-end
-
---[[ return the description table from the #airbase object
-- @param #airbase self
-- @return #array
-]]
-function airbase:getDesc()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getDesc()
-    end
-    return nil
-end
-
---[[ return a boolean if the #airbase object has a specific attribute
-- @param #airbase self
-- @param #string attribute [eg; "Airfields"]
-]]
-function airbase:hasAttribute(attribute)
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:hasAttribute(attribute)
-    end
-    return nil
-end
-
---[[ return the name of the #airbase object
-- @param #airbase self
-- @return #string
-]]
-function airbase:getName()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getName()
-    end
-    return nil
-end
-
---[[ return the current vec3 of the #airbase object
-- @param #airbase self
-- @return #table
-]]
-function airbase:getPoint()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getPoint()
-    end
-    return nil
-end
-
---[[ return the current orientation vectors from the #airbase object
-- returns positional orientation in 3D space
-- @param #airbase self
-- @return #table
-]]
-function airbase:getPosition()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getPosition()
-    end
-    return nil
-end
-
---[[ return the vec3 velocity vectors from the #airbase object
-- @param #airbase self
-- @return #table
-]]
-function airbase:getVelocity()
-    local dcsAirbase = self:getDCSAirbase()
-    if dcsAirbase then
-        return dcsAirbase:getVelocity()
-    end
-    return nil
-end
-
---[[ return a #airbase objects description table by type name
-- @param #string airbaseTypeName
-- @return #table
-]]
-function airbase.getDescByName(airbaseTypeName)
-    return Airbase.getDescByName(airbaseTypeName) or nil
-end
-
---[[
-
-@class #static
-
-@authors Wizard
-
-@description
-wrapper functions for DCS Class StaticObject with additional methods available.
-
-@features
-
-@todo
-- document
-- readme
-- work on a isAlive bc statics are wack
-
-@created Feb 6, 2022
-
-]]
 
 static = {}
 
---[[ create a new instance of a static object
-- @param #group self
-- @param #string groupName
-- @return #group self
-]]
 function static:getByName(staticName)
-    if database.staticsByName[staticName] then
-        local self = util:inheritParent(self, handler:new())
-        self.staticName = staticName
-        self.staticTemplate = util:deepCopy(database.staticsByName[staticName])
+    local self = util:inheritParents(self, {object:getByName(staticName), handler:new()})
+    if not self.object then
+        self:error("static:getByName(): unit object %s could not be found in the database", staticName)
         return self
     end
-    return nil
-end
-
--- ** ssf class #static methods** --
---[[ return a boolean if the #static object is alive or not
-- @param #static self
-- @return #boolean [true if alive]
-]]
-function static:isAlive()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        if static:isExist() then
-            if static:getLife() >= 1 then
-                return true
-            end
-        end
-    end
-    return false
-end
-
---[[ return the dcs class #StaticObject from the #static object
-- @param #static self
-- @return dcs class #StaticObject
-]]
-function static:getDCSStaticObject()
-    if StaticObject.getByName(self.staticName) ~= nil then
-        return StaticObject.getByName(self.staticName)
-    end
-    return nil
-end
-
--- ** dcs class #StaticObject Wrapper Methods ** --
-
---[[ return the unique object identifier given to the #static object
-- @param #static self
-- @return #number
-]]
-function static:getID()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getID()
-    end
-    return nil
-end
-
---[[ return the #static object cargo mass in kg
-- @param #static self
-- @return #string [eg; "1500 kg"]
-]]
-function static:getCargoDisplayName()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getCargoDisplayName()
-    end
-    return nil
-end
-
---[[ return the #static object cargo mass in kg
-- @param #static self
-- @return #number [eg; 900]
-]]
-function static:getCargoWeight()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getCargoWeight()
-    end
-    return nil
-end
-
---[[ return the current value for an animation argument for the external model of the staic object
-- @param #static self
-- @return #number [-1 to 1+]
-]]
-function static:getDrawArgumentValue()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getDrawArgumentValue()
-    end
-    return nil
-end
-
---[[ return a boolean if the #static object currently exists or not
-- @param #static self
-- @return #boolean [true if currently exists]
-]]
-function static:isExist()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:isExist()
-    end
-    return false
-end
-
---[[ destroy the #static object with no explosion
-- @param #static self
-- @return #static self
-]]
-function static:destroy()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:destroy()
-    end
+    self.staticName = staticName
     return self
 end
 
---[[ return the category of the #static object
-- @param #static self
-- @return #enum [eg; 1 for unit]
-]]
-function static:getCategory()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getDesc().category
+function static:getDCSObject()
+    local dcsObject = StaticObject.getByName(self.staticName)
+    if dcsObject then
+        return dcsObject
     end
-    return nil
 end
-
---[[ return the type name from the #static object
-- @param #static self
-- @return #string [the #static type name. eg; "ammo_cargo"]
-]]
-function static:getTypeName()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getTypeName()
-    end
-    return nil
-end
-
---[[ return the description table from the #static object
-- @param #static self
-- @return #array
-]]
-function static:getDesc()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getDesc()
-    end
-    return nil
-end
-
---[[ return a boolean if the #static object has a specific attribute
-- @param #static self
-- @param #string attribute [eg; "Fortifications"]
-]]
-function static:hasAttribute()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:hasAttribute()
-    end
-    return nil
-end
-
---[[ return the name of the #static object
-- note this is the unit name
-- @param #static self
-- @return #string
-]]
-function static:getName()
-    return self.staticName
-end
-
---[[ return the current vec3 of the #static object
-- @param #static self
-- @return #table
-]]
-function static:getPoint()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getPoint()
-    end
-    return nil
-end
-
---[[ return the current orientation vectors from the #static object
-- returns positional orientation in 3D space
-- @param #static self
-- @return #table
-]]
-function static:getPosition()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getPosition()
-    end
-    return nil
-end
-
---[[ return the coalition of the #static object
-- @param #static self
-- @return #enum [eg; 1 for red, 2 for blue, 0 for neutral]
-]]
-function static:getCoalition()
-    if self:isExist() then
-        return self.staticTemplate.coalition
-    end
-    return nil
-end
-
---[[ return the country of the #static object
-- @param #static self
-- @return #number countryId
-]]
-function static:getCountry()
-    local dcsStaticObject = self:getDCSStaticObject()
-    if dcsStaticObject then
-        return dcsStaticObject:getCountry()
-    end
-    return nil
-end
-
---[[ return a #static objects description table by type name
-- @param #string staticTypeName
-- @return #table
-]]
-function static.getDescByName(staticTypeName)
-    return StaticObject.getDescByName(staticTypeName) or nil
-end
-
---[[
-
-@class #group
-
-@authors Wizard
-
-@description
-wrapper functions for DCS Class Group with additional methods available.
-
-@features
-- wrapped methods for DCS Group
-- extra methods not available with DCS Group
-- inherited methods from #handler
-
-@todo
-- redo documentation
-- readme
-- debugging
-
-@created Feb 6, 2022
-
-]]
 
 group = {}
 
---[[ create a new instance of a group object
-- returns any object that has been placed in the mission or dynamically born
-- @param #group self
-- @param #string groupName
-- @return #group self
-]]
 function group:getByName(groupName)
-    if database.groupsByName[groupName] ~= nil then
-        local self = util:inheritParent(self, handler:new())
-        self.groupName = groupName
-        self.groupTemplate = util:deepCopy(database.groupsByName[groupName])
+    local self = util:inheritParents(self, {base:new(), handler:new()})
+    local group = databases:getGroupObject(groupName)
+    if not group then
+        self:error("group:getByName(): unit object %s could not be found in the database", groupName)
         return self
     end
-    return nil
-end
-
--- ** ssf class #group methods ** --
-
---[[ handle a specfic event for the units within the group
-- @param #group self
-- @param #enum event [the event that will be triggered for the units within the group, eg: event.land
-- @return #group self]]
-function group:handleEvent(event)
-    self:handleGroupEvent(self, event, self.groupName)
+    self.group = group
+    self.groupName = groupName
     return self
 end
 
---[[ return a #unit object within the #group object by its current index or name
-- @param #group self
-- @poram #variable unitVar [this can be the current index (id) of the #unit or its name]
-- @return #unit self
-]]
-function group:getUnit(unitVar)
-    if type(unitVar) == "string" then
-        return unit:getByName(unitVar)
-    elseif type(unitVar) == "number" then
-        local unitName = self.groupTemplate.units[unitVar].name
-        return unit:getByName(unitName)
-    end
-    return nil
-end
-
---[[ return an array of #unit objects within the #group object
-- @param #group self
-- @return #array #units [array of unit objects]
-]]
-function group:getUnits()
-    local units = {}
-    if self.groupTemplate then
-        for _, u in pairs(self.groupTemplate.units) do
-            units[#units+1] = unit:getByName(u.name)
-        end
-    end
-    return units
-end
-
---[[ return a deep copy of the #group object template
-- @param #group self
-- @return #table groupTemplate
-]]
-function group:getTemplate()
-    return util:deepCopy(self.groupTemplate)
-end
-
---[[ return the average speed of the #group object in kilometers per hour
-- @param #group self
-- @return #number avgVelocityKMH
-]]
-function group:getAvgVelocityKMH()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local avgVelocityKMH = 0
-        local units = self:getUnits()
-        for _, unit in pairs(units) do
-            local unitVelocityKMH = util:getVelocityKMH(unit)
-            avgVelocityKMH = avgVelocityKMH + unitVelocityKMH
-        end
-        return avgVelocityKMH / #units
-    end
-    return nil
-end
-
---[[ return the average vec3 point from the #group object
-- @param #group self
-- @return #table avgVec3 [table of x, y, and z coordinates from the average point of the group]
-]]
-function group:getPoint()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local avgX, avgY, avgZ, count = 0, 0, 0, 0
-        local units = self:getUnits()
-        for _, unit in pairs(units) do
-            local unitVec3 = unit:getPoint()
-            avgX = avgX + unitVec3.x
-            avgY = avgY + unitVec3.y
-            avgZ = avgZ + unitVec3.z
-            count = count + 1
-        end
-        if count ~= 0 then
-            local avgVec3 = {
-                ["x"] = avgX/count,
-                ["y"] = avgY/count,
-                ["z"] = avgZ/count
-            }
-            return avgVec3
-        end
-    end
-    return nil
-end
-
---[[ return the average amount of fuel remaining for the #group object
-- @param #group self
-- @rreturn #number avgFuel
-]]
-function group:getAvgFuel()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local totalFuel = 0
-        local units = self:getUnits()
-        for _, unit in pairs(units) do
-            totalFuel = totalFuel + unit:getFuel()
-        end
-        local avgFuel = totalFuel / #units
-        return avgFuel
-    end
-    return nil
-end
-
---[[ return the average percentage of health for the #group object
-- @param #group self
-- @return #number health [return example: ]
-]]
-function group:getAvgHealth()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local units = self:getUnits()
-        local totalHealth = 0
-        for _, unit in pairs(units) do
-            totalHealth = totalHealth + unit:getLife()/unit:getLife0()
-        end
-        local avgHealth = totalHealth / #units * 100
-        return avgHealth
-    end
-    return nil
-end
-
---[[ return the average ammount of ammo a group has
-- note: the number returned will be a count of each weapon returned thats on a pylon (not included is gun rouunds)
-- @param #group self
-- @return #number avgAmmo
-]]
-function group:getAvgAmmo()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local ammoCount = 0
-        local units = self:getUnits()
-        for _, unit in pairs(units) do
-            local ammo = unit:getAmmo()
-            for _, ammoData in pairs(ammo) do
-                if ammoData.desc.category ~= 0 then -- missile, rocket, bomb
-                    ammoCount = ammoCount + ammoData.count
-                end
-            end
-        end
-        return ammoCount
-    end
-    return nil
-end
-
---[[ get targets detected by the #group object
-- @param #group self
-- @param #table targets [array of detectionTypes]
-- @param #table categories [array of unit categories to detect eg: {Unit.Category.AIRPLANE, Unit.Category.HELICOPTER]
-- @param #number range [the max range that targets will be detected]
-- @return #table detectedTargets
-]]
-function group:getDetectedTargets(detection, categories, range)
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local dcsController = self:getController()
-        local targetsInRange = {}
-        local detectedTargets = dcsController:getDetectedTargets(detection[1] or nil, detection[2] or nil, detection[3] or nil)
-        for _, targetData in pairs(detectedTargets) do
-            local targetObject = targetData.object
-            local targetName = targetObject:getName()
-            local targetCategory = targetObject:getDesc().category
-            if type(categories) ~= "table" then
-                categories = {categories}
-            end
-            for _, category in pairs(categories) do
-                if category == targetCategory then
-                    local targetVec3 = targetObject:getPoint()
-                    local selfVec3 = self:getPoint()
-                    local seperation = util:getDistance(selfVec3, targetVec3)
-                    if seperation <= range then
-                        targetsInRange[#targetsInRange+1] = targetName
-                    end
-                end
-            end
-        end
-        return targetsInRange
-    end
-    return nil
-end
-
---[[ return a boolean if the #group object is alive
-- @param #group self
-- @return #boolean [true if at least one unit is still alive]
-]]
-function group:isAlive()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        for _, unit in pairs(self:getDCSUnits()) do
-            if unit:isActive() and unit:isExist() and unit:getLife() > 0 then
-                return true
-            end
-        end
-    end
-    return false
-end
-
---[[ return a boolean if the #group object is in air
-- @param #group self
-- @return #boolean groupInAir [true if at least one unit is in air]
-]]
-function group:inAir(allOfGroupInAir)
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local inAirUnits = 0
-        local units = self:getUnits()
-        for _, unit in pairs(units) do
-            if unit:inAir() then
-                inAirUnits = inAirUnits + 1
-            end
-        end
-        if allOfGroupInAir then
-            if inAirUnits == #units then
-                return true
-            end
-        else
-            if inAirUnits > 0 then
-                return true
-            end
-        end
-    end
-    return false
-end
-
---[[ return a boolean the #group object is in a zone
-- @param #group self
-- @param #string zoneName [the name of the zone to check if the #group object is inside]
-- @param #boolean allOfGroupInZone [if true, the entire group must be in the zone to return true]
-- @return #boolean
-]]
-function group:inZone(zoneName, allOfGroupInZone)
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        local units = self:getUnits()
-        local inZoneCount = 0
-        for _, _unit in pairs(units) do
-            if _unit:inZone(zoneName) then
-                inZoneCount = inZoneCount + 1
-            end
-        end
-
-        if allOfGroupInZone then
-            if inZoneCount == #units then
-                return true
-            end
-        else
-            if inZoneCount > 0 then
-                return true
-            end
-        end
-    end
-    return false
-end
-
--- ** dcs class #Group Wrapper Methods ** --
-
---[[ return the DCS Class Group from the #group object
-- @param #group self
-- @return DCS#Group
-]]
 function group:getDCSGroup()
     local dcsGroup = Group.getByName(self.groupName)
     if dcsGroup then
         return dcsGroup
     end
-    return nil
 end
 
---[[ return the category from the #group object
-- Group.Category enums found here: https://wiki.hoggitworld.com/view/DCS_Class_Group
-- @param #group self
-- @return #enum groupCategory
-]]
-function group:getCategory()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getDesc().category
-    end
-    return nil
-end
+-- ** initialization ** --
 
---[[ return the coalition from the #group object
--- coalition.side enums found here: https://wiki.hoggitworld.com/view/DCS_singleton_coalition
-- @param #group self
-- @return #number groupCoalition
-]]
-function group:getCoalition()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getCoalition()
-    end
-    return nil
-end
+databases = database:new()
+-- optional database registrations
+databases:registerPayloads()
+databases:registerLiverys()
 
---[[ return the group name from the #group object
-- @param #group self
-- @return #string groupName
-]]
-function group:getName()
-    return self.groupName or nil
-end
-
---[[ return the unique object identifier given to the #group object
-- @param #group self
-- @return #number groupId
-]]
-function group:getID()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getID()
-    end
-    return nil
-end
-
---[[ get a dcs class #Unit from the #group object
-- @param #group self
-- @param #number unitId [the unitId within the group to obtain]
-- @return DCS#Unit dcsUnit
-]]
-function group:getDCSUnit(unitId)
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getUnit(unitId)
-    end
-    return nil
-end
-
---[[ get all the DCS#Units from the #group object
-- @param #group self
-- #return DCS#Units units
-]]
-function group:getDCSUnits()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getUnits()
-    end
-    return nil
-end
-
---[[ return the current size of the #group object
-- @param #group self
-- @return #number groupSize
-]]
-function group:getSize()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getSize()
-    end
-    return 0
-end
-
---[[ return the inital size of the #group object
-- this does not return the current size but the size of group template
-- @param #group self
-- @return #number initGroupSize
-]]
-function group:getInitialSize()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getInitialSize()
-    end
-    return nil
-end
-
---[[ return the DCS#Controller for the #group object
-- @param #group self
-- @return DCS#GroupController
-]]
-function group:getController()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:getController()
-    end
-    return nil
-end
-
---[[ return a boolean if the #group object exists currently
-- @param #groups self
-- @return #boolean groupExist
-]]
-function group:isExist()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:isExist()
-    end
-    return false
-end
-
---[[ activate a DCS Group of units
-- @param #group self
-- @return #group self
-]]
-function group:activate()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:isActive()
-    end
-    return self
-end
-
---[[ destroy the #group object with no explosion
-- @param #group self
-- @return #group self
-]]
-function group:destroy()
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        return dcsGroup:destroy()
-    end
-    return self
-end
-
---[[ enable the #group object to have its radar emitters on or off
-- @param #group self
-- @param #boolean emission [if true the group will enable its radars]
-- @return #group self
-]]
-function group:enableEmission(emission)
-    local dcsGroup = self:getDCSGroup()
-    if dcsGroup then
-        dcsGroup:enableEmission(emission)
-        return self
-    end
-end
-
-database = databases:new()
-
-base:info("simple scripting framework successfully loaded version %s", ssf.version)
+log.write("ssf.lua", log.INFO, "simple scripting framework successfully loaded version "..ssf.version)
