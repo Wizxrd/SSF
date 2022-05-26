@@ -53,5 +53,7 @@ globals = {
     "scheduler",
     "database",
     "base",
-    "databases"
+    "databases",
+    "object",
+    "scenery"
 }
