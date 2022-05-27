@@ -13,18 +13,16 @@ Orientated Lua Scripting for DCS World Mission Creators.
 
 @created Jan 30, 2022
 
-@version 0.0.1
+@version 0.0.11
 
 @todo
-- finish coalition objects and their member methods not inherited from object class
-- finish group object wrapper member methods
-- finish birth class methods
+
 ]]
 
 log.write("ssf.lua", log.INFO, "loading simple scripting framework")
 
 local ssf = {}
-ssf.version = "0.0.1"
+ssf.version = "0.0.11"
 
 --
 --
@@ -56,10 +54,8 @@ enum.waypoint = {
 	["takeoffParking"]	  = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
 	["takeoffParkingHot"] = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
 	["LandingReFuAr"] 	  = {name = "LandingReFuAr",            type = "LandingReFuAr",     action = "LandingReFuAr"},
-
 	["takeoffGround"]	  = {name = "Takeoff from ground", 	    type = "TakeOffGround",     action = "From Ground Area"},
 	["takeoffGroundHot"]  = {name = "Takeoff from ground hot",  type = "TakeOffGroundHot",  action = "From Ground Area Hot"},
-
 	["landing"] 		  = {name = "Landing",                  type = "Land",              action = "Landing"},
 	["offRoad"] 		  = {name = "Offroad",                  type = "Turning Point",     action = "Off Road"},
 	["onRoad"] 		      = {name = "On road",              	type = "Turning Point",     action = "On Road"},
@@ -75,10 +71,10 @@ enum.waypoint = {
 
 --[[
 
-@enum #weaponFlag
+@enum #weapon
 
 @description
-constant table of weaponFlags with corresponding values required for tasking
+constant table of weaponFlags with corresponding values
 
 @features
 - coverage of all weapon flags
@@ -87,7 +83,7 @@ constant table of weaponFlags with corresponding values required for tasking
 
 ]]
 
-enum.weaponFlag = {
+enum.weapon = {
     ["NoWeapon"] = 0,
 
     -- Bombs
@@ -959,487 +955,6 @@ end
 
 --[[
 
-@class #fsm
-
-@authors Wizard
-
-@description
-A Finite State Machine (fsm) models a process flow that transitions between various States through triggered events.
-
-@features
-- base class to model your own state machines.
-- trigger events synchronously.
-- trigger events asynchronously.
-- handle events before or after the event was triggered.
-- handle state transitions as a result of event before and after the state change.
-
-@credit MOOSE
-The developers of MOOSE have created this class, I take no credit for the hard work they did to create it. I've simply
-reworked the code to be able to work without MOOSE. Many thanks to those that created it.
-
-@created Feb 8, 2022
-
-]]
-
-fsm = {}
-
---[[ creates a new fsm object
-- @param #fsm self
-- @return #fsm
-]]
-function fsm:new()
-    local self = util:inheritParent(self, base:new())
-    self.options = {}
-    self.options.subs = {}
-    self.current = 'none'
-    self.Events = {}
-    self.subs = {}
-    self.endstates = {}
-    self.Scores = {}
-    self._StartState = "none"
-    self._Transitions = {}
-    self._Processes = {}
-    self._EndStates = {}
-    self._Scores = {}
-    self._EventSchedules = {}
-    self.CallScheduler = nil
-    return self
-end
-
-
---[[ sets the start state of the fsm
-- @param #fsm self
-- @param #string State A string defining the start state
-]]
-function fsm:setStartState(State)
-    self._StartState = State
-    self.current = State
-end
-
-
---[[ returns the start state of the fsm
-- @param #fsm self
-- @return #string A string containing the start state
-]]
-function fsm:getStartState()
-    return self._StartState or {}
-end
-
---[[ Add a new transition rule to the fsm
-- note: A transition rule defines when and if the fsm can transition from a state towards another state upon a triggered event
-- @param #fsm self
-- @param #table From Can contain a string indicating the From state or a table of strings containing multiple From states
-- @param #string Event The Event name
-- @param #string To The To state
-]]
-function fsm:addTransition(From, Event, To)
-    local Transition = {}
-    Transition.From = From
-    Transition.Event = Event
-    Transition.To = To
-    self._Transitions[Transition] = Transition
-    self:eventMap(self.Events, Transition)
-end
-
-
---[[ Returns a table of the transition rules defined within the fsm
-- @param #fsm self
-- @return #table Transitions
-]]
-function fsm:getTransitions()
-  return self._Transitions or {}
-end
-
---[[ Set the default @{Process} template with key ProcessName providing the ProcessClass and the process object when it is assigned to a @{Wrapper.Controllable} by the task.
-- @param #fsm self
-- @param #table From Can contain a string indicating the From state or a table of strings containing multiple From states.
-- @param #string Event The Event name.
-- @param Core.fsm#fsm_PROCESS Process An sub-process fsm.
-- @param #table ReturnEvents A table indicating for which returned events of the Subfsm which Event must be triggered in the fsm.
-- @return Core.fsm#fsm_PROCESS The Subfsm.
---
-function fsm:addProcess(From, Event, Process, ReturnEvents)
-    local Sub = {}
-    Sub.From = From
-    Sub.Event = Event
-    Sub.fsm = Process
-    Sub.StartEvent = "Start"
-    Sub.ReturnEvents = ReturnEvents
-    self._Processes[Sub] = Sub
-    self:submap(self.subs, Sub, nil)
-    self:addTransition(From, Event, From)
-    return Process
-end
-]]
-
---[[ Returns a table of the Subfsm rules defined within the fsm
-- @param #fsm self
-- @return #table Sub processes
-]]
-function fsm:getProcesses()
-    return self._Processes or {}
-end
-
-function fsm:getProcess(From, Event)
-    for ProcessID, Process in pairs(self:getProcesses()) do
-        if Process.From == From and Process.Event == Event then
-        return Process.fsm
-        end
-    end
-    error("Sub-Process from state " .. From .. " with event " .. Event .. " not found!")
-end
-
-function fsm:setProcess(From, Event, fsm)
-    for ProcessID, Process in pairs(self:getProcesses()) do
-        if Process.From == From and Process.Event == Event then
-        Process.fsm = fsm
-        return true
-        end
-    end
-    error("Sub-Process from state " .. From .. " with event " .. Event .. " not found!")
-end
-
---[[ Adds an End state
-- @param #fsm self
-- @param #string State The fsm state
-]]
-function fsm:addEndState(State)
-    self._EndStates[State] = State
-    self.endstates[State] = State
-end
-
---[[ Returns the End states
-- @param #fsm self
-- @return #table End states
-]]
-function fsm:getEndStates()
-    return self._EndStates or {}
-end
-
-
---[[ Adds a score for the fsm to be achieved
-- @param #fsm self
-- @param #string State is the state of the process when the score needs to be given. (See the relevant state descriptions of the process)
-- @param #string ScoreText is a text describing the score that is given according the status
-- @param #number Score is a number providing the score of the status
-- @return #fsm self
-]]
-function fsm:addScore(State, ScoreText, Score)
-    self._Scores[State] = self._Scores[State] or {}
-    self._Scores[State].ScoreText = ScoreText
-    self._Scores[State].Score = Score
-    return self
-end
-
---[[ Adds a score for the fsm_PROCESS to be achieved
-- @param #fsm self
-- @param #string From is the From State of the main process
-- @param #string Event is the Event of the main process
-- @param #string State is the state of the process when the score needs to be given. (See the relevant state descriptions of the process)
-- @param #string ScoreText is a text describing the score that is given according the status
-- @param #number Score is a number providing the score of the status
-- @return #fsm self
-]]
-function fsm:addScoreProcess(From, Event, State, ScoreText, Score)
-    local Process = self:getProcess(From, Event)
-    Process._Scores[State] = Process._Scores[State] or {}
-    Process._Scores[State].ScoreText = ScoreText
-    Process._Scores[State].Score = Score
-    return Process
-end
-
---[[ Returns a table with the scores defined
-- @param #fsm self
-- @return #table Scores
-]]
-function fsm:getScores()
-    return self._Scores or {}
-end
-
---[[ Returns a table with the Subs defined
-- @param #fsm self
-- @return #table Sub processes
-]]
-function fsm:getSubs()
-    return self.options.subs
-end
-
---[[ Load call backs
-- @param #fsm self
-- @param #table CallBackTable Table of call backs
-]]
-function fsm:loadCallBacks(CallBackTable)
-    for name, callback in pairs(CallBackTable or {}) do
-        self[name] = callback
-    end
-end
-
---[[ Event map
-- @param #fsm self
-- @param #table Events Events
-- @param #table EventStructure Event structure
-]]
-function fsm:eventMap(Events, EventStructure)
-    local Event = EventStructure.Event
-    local __Event = "__" .. EventStructure.Event
-    self[Event] = self[Event] or self:createTransition(Event)
-    self[__Event] = self[__Event] or self:delayedTransition(Event)
-    Events[Event] = self.Events[Event] or { map = {} }
-    self:addToMap(Events[Event].map, EventStructure)
-end
-
---[[ Sub maps
-- @param #fsm self
-- @param #table subs Subs
-- @param #table sub Sub
-- @param #string name Name
-]]
-function fsm:submap(subs, sub, name)
-    subs[sub.From] = subs[sub.From] or {}
-    subs[sub.From][sub.Event] = subs[sub.From][sub.Event] or {}
-    subs[sub.From][sub.Event][sub] = {}
-    subs[sub.From][sub.Event][sub].fsm = sub.fsm
-    subs[sub.From][sub.Event][sub].StartEvent = sub.StartEvent
-    subs[sub.From][sub.Event][sub].ReturnEvents = sub.ReturnEvents or {} -- these events need to be given to find the correct continue event ... if none given, the processing will stop
-    subs[sub.From][sub.Event][sub].name = name
-    subs[sub.From][sub.Event][sub].fsmparent = self
-end
-
---[[ Call handler
-- @param #fsm self
-- @param #string step Step "onafter", "onbefore", "onenter", "onleave"
-- @param #string trigger Trigger
-- @param #table params Parameters
-- @param #string EventName Event name
-- @return Value
-]]
-function fsm:callHandler(step, trigger, params, EventName)
-    local handler = step .. trigger
-    if self[handler] then
-        self._EventSchedules[EventName] = nil
-        -- Error handler.
-        local ErrorHandler = function(errmsg)
-            self:error("fsm:callHandler(): Error in scheduled function:" .. errmsg)
-            return errmsg
-        end
-        local Result, Value = xpcall(function() return self[handler](self, unpack(params)) end, ErrorHandler)
-        return Value
-    end
-end
-
---[[ Handler
-- @param #fsm self
-- @param #string EventName Event name
-- @param ... Arguments
-]]
-function fsm._handler(args)
-    local self = args[1]
-    local EventName = args[2]
-    local _args = args[3]
-    local Can, To = self:can(EventName)
-    if To == "*" then
-        To = self.current
-    end
-    if Can then
-        local From = self.current
-        local Params = { From, EventName, To, _args  }
-        if self["onleave".. From] or
-            self["onLeave".. From] or
-            self["onbefore".. EventName] or
-            self["onBefore".. EventName] or
-            self["onafter".. EventName] or
-            self["onAfter".. EventName] or
-            self["onenter".. To] or
-            self["onEnter".. To] then
-            if self:callHandler("onbefore", EventName, Params, EventName) == false then
-                return false
-            else
-                if self:callHandler("onBefore", EventName, Params, EventName) == false then
-                    return false
-                else
-                    if self:callHandler("onleave", From, Params, EventName) == false then  
-                        return false
-                    else
-                        if self:callHandler("onLeave", From, Params, EventName) == false then
-                            return false
-                        end
-                    end
-                end
-            end
-        end
-        -- New current state
-        self.current = To
-        local execute = true
-        local subtable = self:_gosub(From, EventName)
-        for _, sub in pairs(subtable) do
-            sub.fsm.fsmparent = self
-            sub.fsm.ReturnEvents = sub.ReturnEvents
-            sub.fsm[sub.StartEvent](sub.fsm)
-            execute = false
-        end
-        local fsmparent, Event = self:_isendstate(To)
-        if fsmparent and Event then
-            self:callHandler("onenter", To, Params, EventName)
-            self:callHandler("onEnter", To, Params, EventName)
-            self:callHandler("onafter", EventName, Params, EventName)
-            self:callHandler("onAfter", EventName, Params, EventName)
-            self:callHandler("onstate", "change", Params, EventName)
-            fsmparent[Event](fsmparent)
-            execute = false
-        end
-
-        if execute then
-            self:callHandler("onafter", EventName, Params, EventName)
-            self:callHandler("onAfter", EventName, Params, EventName)
-            self:callHandler("onenter", To, Params, EventName)
-            self:callHandler("onEnter", To, Params, EventName)
-            self:callHandler("onstate", "change", Params, EventName)
-        end
-    end
-
-    return nil
-end
-
---[[ Delayed transition
-- @param #fsm self
-- @param #string EventName Event name
-- @return #function Function
-]]
-function fsm:delayedTransition(EventName)
-    return function(self, DelaySeconds, ...)
-        local CallID = 0
-        if DelaySeconds ~= nil then
-            if DelaySeconds < 0 then -- Only call the event ONCE!
-                DelaySeconds = math.abs(DelaySeconds)
-                if not self._EventSchedules[EventName] then
-                    CallID = scheduler:new(fsm._handler, {self, EventName, ...}, DelaySeconds or 1)
-                    self._EventSchedules[EventName] = CallID
-                end
-            else
-                CallID = scheduler:new(fsm._handler, {self, EventName, ...}, DelaySeconds or 1)
-            end
-        else
-            error("fsm: An asynchronous event trigger requires a DelaySeconds parameter!!! This can be positive or negative! Sorry, but will not process this.")
-        end
-    end
-end
-
---[[ Create transition
-- @param #fsm self
-- @param #string EventName Event name
-- @return #function Function
-]]
-function fsm:createTransition(EventName)
-    return function(self, ...) return self._handler({ self,  EventName , ... }) end
-end
-
---[[ Go sub
-- @param #fsm self
-- @param #string ParentFrom Parent from state
-- @param #string ParentEvent Parent event name
-- @return #table Subs
-]]
-function fsm:_gosub(ParentFrom, ParentEvent)
-    local fsmtable = {}
-    if self.subs[ParentFrom] and self.subs[ParentFrom][ParentEvent] then
-        return self.subs[ParentFrom][ParentEvent]
-    else
-        return {}
-    end
-end
-
---[[ Is end state
-- @param #fsm self
-- @param #string Current Current state name
-- @return #table fsm parent
-- @return #string Event name
-]]
-function fsm:_isendstate(Current)
-  local fsmParent = self.fsmparent
-    if fsmParent and self.endstates[Current] then
-        fsmParent.current = Current
-        local ParentFrom = fsmParent.current
-        local Event = self.ReturnEvents[Current]
-        if Event then
-            return fsmParent, Event
-        end
-    end
-
-    return nil
-end
-
---[[ Add to map
-- @param #fsm self
-- @param #table Map Map
-- @param #table Event Event table
-]]
-function fsm:addToMap(Map, Event)
-    if type(Event.From) == 'string' then
-        Map[Event.From] = Event.To
-    else
-        for _, From in ipairs(Event.From) do
-        Map[From] = Event.To
-        end
-    end
-end
-
---[[ Get current state
-- @param #fsm self
-- @return #string Current fsm state
-]]
-function fsm:getState()
-    return self.current
-end
-
---[[ Get current state
-- @param #fsm self
-- @return #string Current fsm state
-]]
-function fsm:getCurrentState()
-    return self.current
-end
-
---[[ Check if fsm is in state
-- @param #fsm self
-- @param #string State State name
-- @param #boolean If true, fsm is in this state
-]]
-function fsm:is(State)
-    return self.current == State
-end
-
---[[ Check if fsm is in state
-- @param #fsm self
-- @param #string State State name
-- @param #boolean If true, fsm is in this state
-]]
-function fsm:_is(state)
-    return self.current == state
-end
-
---[[ Check if can do an event
-- @param #fsm self
-- @param #string e Event name
-- @return #boolean If true, fsm can do the event
-- @return #string To state
-]]
-function fsm:can(e)
-    local Event = self.Events[e]
-    local To = Event and Event.map[self.current] or Event.map['*']
-    return To ~= nil, To
-end
-
---[[ Check if cannot do an event
-- @param #fsm self
-- @param #string e Event name
-- @return #boolean If true, fsm cannot do the event
-]]
-function fsm:cannot(e)
-    return not self:can(e)
-end
-
---[[
-
 @class #handler
 
 @authors Wizard
@@ -1464,51 +979,9 @@ handler = {}
 - @return #handler self
 ]]
 function handler:new()
-    local self = util:inheritParent(self, fsm:new())
+    local self = util:inheritParent(handler, base:new())
     self.events = {}
     world.addEventHandler(self)
-    return self
-end
-
---[[ handler registration for #group event
-- @param #handler self
-- @param #group class self
-- @param #enum event
-- @param #groupName
-- @return #handler self
-]]
-function handler:handleGroupEvent(class, event, groupName)
-    if not self.events[event.id] then
-        self.events[event.id] = {
-            class = class,
-            event = event.name,
-            id = event.id,
-            group = true,
-            groupName = groupName
-        }
-        self:addTransition("*", event.name, "*")
-    end
-    return self
-end
-
---[[ handler registration for #unit event
-- @param #handler self
-- @param #unit class self
-- @param #enum event
-- @param #unitName
-- @return #handler self
-]]
-function handler:handleUnitEvent(class, event, unitName)
-    if not self.events[event.id] then
-        self.events[event.id] = {
-            class = class,
-            event = event.name,
-            id = event.id,
-            unit = true,
-            unitName = unitName
-        }
-        self:addTransition("*", event.name, "*")
-    end
     return self
 end
 
@@ -1521,10 +994,49 @@ function handler:handleEvent(event)
     if not self.events[event.id] then
         self.events[event.id] = {
             class = self,
-            event = event.name,
+            name = event.name,
             id = event.id
         }
-        self:addTransition("*", event.name, "*")
+    end
+    return self
+end
+
+--[[ handler registration for #group event
+- @param #handler self
+- @param #group class self
+- @param #enum event
+- @param #groupName
+- @return #handler self
+]]
+function handler:handleGroupEvent(event, groupName)
+    if not self.events[event.id] then
+        self.events[event.id] = {
+            class = self,
+            name = event.name,
+            id = event.id,
+            group = true,
+            groupName = groupName or self.groupName
+        }
+    end
+    return self
+end
+
+--[[ handler registration for #unit event
+- @param #handler self
+- @param #unit class self
+- @param #enum event
+- @param #unitName
+- @return #handler self
+]]
+function handler:handleUnitEvent(event, unitName)
+    if not self.events[event.id] then
+        self.events[event.id] = {
+            class = self,
+            name = event.name,
+            id = event.id,
+            unit = true,
+            unitName = unitName or self.unitName
+        }
     end
     return self
 end
@@ -1542,19 +1054,17 @@ function handler:unhandleEvent(event)
 end
 
 --[[ the dcs onEvent function where mass data collection takes place for any event
-- this function should never be called for any reason by users!
-- registed events will call the appropriate onAfterXx automatically for the calling class!
 - @param #handler self
 - @param #dcsEvent event
 - @return none
 ]]
-function handler:onEvent(event)
+function handler:onEvent(dcsEvent)
     local success, err = pcall(function()
-        if self.events[event.id] ~= nil and event.id == self.events[event.id].id then
-            local _event = self.events[event.id]
+        if self.events[dcsEvent.id] ~= nil then
+            local event = self.events[dcsEvent.id]
             local eventData = {}
-            if event.initiator ~= nil then
-                local dcsUnit = event.initiator
+            if dcsEvent.initiator ~= nil then
+                local dcsUnit = dcsEvent.initiator
                 eventData.initUnit = dcsUnit
                 eventData.initUnitName = dcsUnit:getName()
                 eventData.initUnitVec3 = dcsUnit:getPoint()
@@ -1580,8 +1090,8 @@ function handler:onEvent(event)
                     eventData.initPlayerUnitTypeName = dcsUnit:getTypeName()
                 end
             end
-            if event.target ~= nil then
-                local dcsUnit = event.target
+            if dcsEvent.target ~= nil then
+                local dcsUnit = dcsEvent.target
                 eventData.tgtUnit = dcsUnit
                 eventData.tgtUnitName = dcsUnit:getName()
                 eventData.tgtGroup = dcsUnit:getGroup()
@@ -1590,47 +1100,47 @@ function handler:onEvent(event)
                     eventData.tgtPlayerName = dcsUnit:getPlayerName()
                 end
             end
-            if event.weapon ~= nil then
-                local dcsWeapon = event.weapon
+            if dcsEvent.weapon ~= nil then
+                local dcsWeapon = dcsEvent.weapon
                 eventData.weapon = dcsWeapon
                 eventData.weaponName = dcsWeapon:getName()
                 eventData.weaponObjTypeName = dcsWeapon:getTypeName()
             end
-            if event.place ~= nil then
-                local dcsAirbase = event.place
+            if dcsEvent.place ~= nil then
+                local dcsAirbase = dcsEvent.place
                 eventData.airbase = dcsAirbase
                 eventData.airbaseName = dcsAirbase:getName()
                 eventData.airbaseCoalition = dcsAirbase:getCoalition()
                 eventData.airbaseVec3 = dcsAirbase:getPoint()
             end
-            if event.text ~= nil then
-                eventData.markId = event.idx
-                eventData.markText = event.text
-                eventData.markVec3 = event.pos
+            if dcsEvent.text ~= nil then
+                eventData.markId = dcsEvent.idx
+                eventData.markText = dcsEvent.text
+                eventData.markVec3 = dcsEvent.pos
             end
-
             -- check if the event is for a group
-            if _event.group then
+            if event.group then
                     -- its for a group, now lets see if its for our group
-                if eventData.initGroupName:find(_event.class.groupName) then
+                if eventData.initGroupName == event.groupName then
                     -- its for our group, now lets return the unit in that group to the onafter/onAfter methods for the requesting class
-                    local class = _event.class -- the class that called the handler
-                    local eventMethod = _event.event -- the fsm method
-                    class[eventMethod](class, eventData) -- call to the fsm event
+                    local class = event.class -- the class that called the handler
+                    local eventMethod = "onEvent"..event.name
+                    class[eventMethod](class, eventData)
                 end
-            elseif _event.unit then -- event is for a unit
+            elseif event.unit then -- event is for a unit
                 -- lets check to see if it matches our unit name
-                if eventData.initUnitName:find(_event.unitName) then
+                env.error(event.unitName)
+                if eventData.initUnitName == event.unitName then
                     -- its for our unit, now lets return the eventData to the onafter/onAfter methods!
-                    local class = _event.class -- the class that called the handler
-                    local eventMethod = _event.event -- the fsm method
-                    class[eventMethod](class, eventData) -- call to the fsm event
+                    local class = event.class -- the class that called the handler
+                    local eventMethod = "onEvent"..event.name
+                    class[eventMethod](class, eventData)
                 end
             else
                 -- not a group or a unit handled event so lets just call an event method
-                local class = _event.class -- the class that called the handler
-                local eventMethod = _event.event -- the fsm method
-                class[eventMethod](class, eventData) -- call to the fsm event
+                local class = event.class -- the class that called the handler
+                local eventMethod = "onEvent"..event.name
+                class[eventMethod](class, eventData)
             end
         end
     end)
@@ -1673,7 +1183,6 @@ birth.takeoff = {
     ["runway"] = {name = "Takeoff from runway",      type = "TakeOff",           action = "From Runway"},
     ["hot"]    = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
     ["cold"]   = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
-    ["air"]    = {name = "Turning point",            type = "Turning Point",     action = "Turning Point" }
 }
 
 --[[ create a new instance of a birth object
@@ -1692,8 +1201,8 @@ function birth:new(groupName)
     self.templateName = groupName
     self.template = template
     self.countryId = self.template.countryId
-    self.category = self.template.category
-    self.coalition = self.template.coalition
+    self.categoryId = self.template.categoryId
+    self.coalitionId = self.template.coalitionId
     self.count = 0
 
     self.keepGroupName = nil
@@ -1702,6 +1211,7 @@ function birth:new(groupName)
     self.groupLimit = nil
     self.unitLimit = nil
     self.groupName = nil
+    self.payload = nil
 
     self.template.countryId = nil
     self.template.category = nil
@@ -1709,12 +1219,12 @@ function birth:new(groupName)
 
     self.bornGroups = {}
     self.bornUnits = {}
+    self.birthTemplate = {}
 
     return self
 end
 
 function birth:handleEvent(event)
-    self:debug("birth:handleEvent(): handling event %s", event.name)
     self:handleGroupEvent(self, event, self.alias or self.templateName)
     return self
 end
@@ -1737,33 +1247,30 @@ function birth:setLimit(groupLimit, unitLimit)
 end
 
 function birth:setPayload(unitId, unitName)
-    if not databases.payloadsByUnitName[unitName] then self:error("birth:setPayload(): could not find %s in database", unitName) return end
-    local unitPayload = util:deepCopy(databases.payloadsByUnitName[unitName])
-    self.template.units[unitId].payload = unitPayload
+    self.payload = util:deepCopy(databases.payloadsByUnitName[unitName])
     return self
 end
 
 function birth:setLivery(unitId, unitName)
-    if not databases.liverysByUnitName[unitName] then self:error("birth:setLivery(): could not find %s in database", unitName) return end
-    local unitLivery = util:deepCopy(databases.liverysByUnitName[unitName])
-    self.template.units[unitId].livery_id = unitLivery
+    self.livery = util:deepCopy(databases.liverysByUnitName[unitName])
     return self
 end
 
 function birth:setCountry(countryName)
-    if not country.id[countryName] then self:error("birth:setCountry(): couldnt find country.id.%s", countryName) return end
-    self.countryId = country.id[countryName]
+    if country.id[countryName] then
+        self.countryId = country.id[countryName]
+    end
     return self
 end
 
 function birth:birth()
-    self:debug("birth:birth(): preparing template %s for birth", self.templateName)
+    self.birthTemplate = util:deepCopy(self.template)
     self:_initialize()
     return self
 end
 
 function birth:birthScheduled(scheduleTime)
-    self:debug("birth:birthScheduled(): preparing template %s for birth on a scheduler", self.templateName)
+    self.birthTemplate = util:deepCopy(self.template)
     self.scheduleTime = scheduleTime
     self:_initialize()
     return self
@@ -1771,18 +1278,18 @@ end
 
 function birth:birthFromVec3(vec3, alt)
     self:debug("birth:birthFromVec3(): preparing template %s for birth from a vec3", self.templateName)
-    if self.category == Group.Category.GROUND or self.category == Group.Category.TRIAN then
+    self.birthTemplate = util:deepCopy(self.template)
+    if self.categoryId == Group.Category.GROUND then
         alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
-    elseif self.category == Group.Category.SHIP then
+    elseif self.categoryId == Group.Category.SHIP then
         alt = 0
-    elseif self.category == Group.Category.AIRPLANE or self.category == Group.Category.HELICOPTER then
+    elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
         if not alt then
             self:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
             return self
         end
         alt = alt
     end
-
     for _, unitData in pairs(self.template.units) do
         local sX = unitData.x or 0
         local sY = unitData.y  or 0
@@ -1795,72 +1302,123 @@ function birth:birthFromVec3(vec3, alt)
         unitData.y = tY
     end
 
-    self.template.route.points[1].alt = alt
-    self.template.route.points[1].x = vec3.x
-    self.template.route.points[1].y = vec3.z
-
+    self.birthTemplate.route.points[1].alt = alt
+    self.birthTemplate.route.points[1].x = vec3.x
+    self.birthTemplate.route.points[1].y = vec3.z
     self:_initialize()
     return self
 end
 
+function birth:birthFromAirbase(airbaseName, takeoffType, parkingSpots)
+    self.birthTemplate = util:deepCopy(self.template)
+    local birthAirbase = airbase:getByName(airbaseName)
+    if birthAirbase then
+        local birthAirbaseVec3 = birthAirbase:getPoint()
+        local birthAirbaseId = birthAirbase:getID()
+        local birthAirbaseCategory = birthAirbase:getCategory()
+        local birthWaypoint = self.birthTemplate.route.points[1]
+        birthWaypoint.type = takeoffType.type
+        birthWaypoint.action = takeoffType.action
+        birthWaypoint.x = birthAirbaseVec3.x
+        birthWaypoint.y = birthAirbaseVec3.z
+        if birthAirbaseCategory == 0 then -- airbases
+            birthWaypoint.airdromeId = birthAirbaseId
+        elseif birthAirbaseCategory == 1 or birthAirbaseCategory == 2 then -- ships get named with this?
+            birthWaypoint.helipadId = birthAirbaseId
+        end
+        if parkingSpots then
+            if birthAirbaseCategory ~= 2 then
+                local parkingData = birthAirbase:getTerminalData(parkingSpots)
+                birthWaypoint.x = parkingData[1].termVec3.x
+                birthWaypoint.y = parkingData[1].termVec3.z
+                for unitId, unitData in ipairs(self.birthTemplate.units) do
+                    unitData.parking = parkingData[unitId].termIndex
+                    unitData.x = parkingData[unitId].termVec3.x
+                    unitData.y = parkingData[unitId].termVec3.z
+                end
+            end
+        end
+        self:_initialize()
+        return self
+    end
+end
+
+function birth:birthFromZone(zoneName, alt)
+    self.birthTemplate = util:deepCopy(self.template)
+    local birthZone = zone:getByName(zoneName)
+    if birthZone then
+        local birthZoneVec3 = birthZone:getVec3()
+        if self.categoryId == Group.Category.GROUND then
+            alt = land.getHeight({["x"] = birthZoneVec3.x, ["y"] = birthZoneVec3.z})
+        elseif self.categoryId == Group.Category.SHIP then
+            alt = 0
+        elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
+            if not alt then
+                self:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
+                return self
+            end
+            alt = alt
+        end
+        for _, unitData in pairs(self.birthTemplate.units) do
+            local sX = unitData.x or 0
+            local sY = unitData.y  or 0
+            local bX = self.birthTemplate.route.points[1].x
+            local bY = self.birthTemplate.route.points[1].y
+            local tX = birthZoneVec3.x + (sX - bX)
+            local tY = birthZoneVec3.z + (sY - bY)
+            unitData.alt = alt
+            unitData.x = tX
+            unitData.y = tY
+        end
+        self.birthTemplate.route.points[1].alt = alt
+        self.birthTemplate.route.points[1].x = birthZoneVec3.x
+        self.birthTemplate.route.points[1].y = birthZoneVec3.z
+        self:_initialize()
+        return self
+    end
+end
+
 function birth:_updateActiveGroups()
-    self:debug("birth:_updateActiveGroups(): updating active groups for template %s", self.templateName)
     self.activeGroups = {}
     for _, groupName in pairs(self.bornGroups) do
         if group:getByName(groupName) then
             if group:getByName(groupName):isAlive() then
                 self.activeGroups[#self.activeGroups+1] = groupName
-            else
-                self:debug("birth:_updateActiveGroups(): group %s not alive", groupName)
             end
-        else
-            self:debug("birth:_updateActiveGroups(): cant find group %s in database?", groupName)
         end
     end
     return self
 end
 
 function birth:_updateActiveUnits()
-    self:debug("birth:_updateActiveUnits(): updating active units for template %s", self.templateName)
     self.activeUnits = {}
     for _, unitName in pairs(self.bornUnits) do
         if unit:getByName(unitName) then
             if unit:getByName(unitName):isAlive() then
                 self.activeUnits[#self.activeUnits+1] = unitName
-            else
-                self:debug("birth:_updateActiveUnits(): unit %s not alive", unitName)
             end
-        else
-            self:debug("birth:_updateActiveUnits(): cant find unit %s in database?", unitName)
         end
     end
     return self
 end
 
 function birth:_witihinGroupLimit()
-    self:debug("birth:_witihinGroupLimit(): comparing active groups against the groupLimit for template %s", self.templateName)
     self:_updateActiveGroups()
     if #self.activeGroups < self.groupLimit then
-        self:debug("birth:_witihinGroupLimit(): returning true, template %s has less active groups than the groupLimit", self.templateName)
         return true
     end
-    self:debug("birth:_witihinGroupLimit(): returning false, template %s active groups are greater than or equal to the groupLimit", self.templateName)
     return false
 end
 
 function birth:_withinUnitLimit()
-    self:debug("birth:_withinUnitLimit(): comparing active units against the unitLimit for template %s", self.templateName)
     self:_updateActiveUnits()
     if #self.activeUnits + #self.template.units <= self.unitLimit then
-        self:debug("birth:_withinUnitLimit(): returning true, template %s has less active units than the unitLimit", self.templateName)
         return true
     end
-    self:debug("birth:_withinUnitLimit(): returning false, template %s active units are greater than or equal to the unitLimit", self.templateName)
     return false
 end
 
 function birth:_initialize()
-    self:debug("birth:_initialize(): initializing template %s", self.templateName)
     if not self.groupLimit and not self.unitLimit then
         -- not group limit and not unit limit
         self:_addGroup()
@@ -1884,38 +1442,31 @@ function birth:_initialize()
 end
 
 function birth:_addGroup()
-    self:debug("birth:_addGroup(): adding template %s into the world", self.templateName)
     if self.schedulerId then self.schedulerId = nil end
     if not self.keepGroupName then
         if self.alias then
             self.groupName = self.alias
-            self.template.name = self.groupName
+            self.birthTemplate.name = self.groupName
         else
             self.groupName = self.template.name.." #"..self.count + 1
-            self.template.name = self.groupName
+            self.birthTemplate.name = self.groupName
         end
     end
     if not self.keepUnitNames then
         for unitId = 1, #self.template.units do
-            self.template.units[unitId].name = self.template.name.."-"..unitId
+            self.birthTemplate.units[unitId].name = self.birthTemplate.name.."-"..unitId
         end
     end
-    if self.template.lateActivation then
-        self.template.lateActivation = false
+    if self.birthTemplate.lateActivation then
+        self.birthTemplate.lateActivation = false
     end
-    coalition.addGroup(self.countryId, self.category, self.template)
+    coalition.addGroup(self.countryId, self.categoryId, self.birthTemplate)
     self.count = self.count + 1
     self.bornGroups[#self.bornGroups+1] = self.groupName
-    databases:addObjectToDatabase("groupsByName", self.template)
-    for _, unitData in pairs(self.template.units) do
+    databases:addGroupObject(self.birthTemplate)
+    for _, unitData in pairs(self.birthTemplate.units) do
         self.bornUnits[#self.bornUnits+1] = unitData.name
-        databases:addObjectToDatabase("unitsByName", unitData)
-        if unitData.payload then
-            databases:addObjectToDatabase("payloadsByUnitName", unitData)
-        end
-        if unitData.livery_id then
-            databases:addObjectToDatabase("liverysByUnitName", unitData)
-        end
+        databases:addUnitObject(unitData)
     end
     if self.scheduleTime then
         local scheduleBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
@@ -1923,6 +1474,31 @@ function birth:_addGroup()
     end
     self:debug("birth:_addGroup(): %s has been born into the world", self.groupName)
     return self
+end
+
+zone = {}
+
+function zone:getByName(zoneName)
+    local self = util:inheritParent(self, base:new())
+    local zone = databases:getZoneObject(zoneName)
+    if not zone then
+        return self
+    end
+    self.zone = zone
+    return self
+end
+
+function zone:getVec3(alt)
+    local vec3 = {}
+    vec3.x = self.zone.x
+    vec3.z = self.zone.y
+    if alt then
+        alt = alt + land.getHeight({x = self.zone.x, y = self.zone.z})
+    else
+        alt = land.getHeight({x = self.zone.x, y = self.zone.z})
+    end
+    vec3.y = alt
+    return vec3
 end
 
 --
@@ -2071,6 +1647,11 @@ function unit:getByName(unitName)
     return self
 end
 
+function unit:handleEvent(event)
+    self:handleUnitEvent(event)
+    return self
+end
+
 function unit:getDescByName()
     return Unit.getDescByName(self.object.typeName)
 end
@@ -2098,6 +1679,44 @@ function airbase:getDCSObject()
     local dcsObject = Airbase.getByName(self.airbaseName)
     if dcsObject then
         return dcsObject
+    end
+end
+
+function airbase:getID()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getID()
+    end
+end
+
+function airbase:getParking()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        local parking = dcsAirbase:getParking()
+        if parking then
+            return parking
+        end
+    end
+end
+
+function airbase:getTerminalData(parkingSpots)
+    local parking = self:getParking()
+    if type(parkingSpots) == "number" then
+        parkingSpots = {parkingSpots}
+    end
+    if parking then
+        local terminalData = {}
+        for _, parkingData in pairs(parking) do
+            for _, parkingSpot in pairs(parkingSpots) do
+                if parkingData.Term_Index == parkingSpot then
+                    terminalData[#terminalData+1] = {
+                        ["termIndex"] = parkingSpot,
+                        ["termVec3"] = parkingData.vTerminalPos
+                    }
+                end
+            end
+        end
+        return terminalData
     end
 end
 
