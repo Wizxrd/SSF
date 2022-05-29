@@ -13,7 +13,7 @@ Orientated Lua Scripting for DCS World Mission Creators.
 
 @created Jan 30, 2022
 
-@version 0.0.11
+@version 0.0.12
 
 @todo
 
