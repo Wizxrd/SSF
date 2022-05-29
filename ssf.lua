@@ -896,26 +896,37 @@ end
 
 function message:toAll(time, clearview)
     trigger.action.outText(self.message, time, clearview)
+    return self
+end
+
+function message:toSide(side, time, clearview)
+    trigger.action.outTextForCoalition(side, self.message, time, clearview)
+    return self
 end
 
 function message:toRed(time, clearview)
     trigger.action.outTextForCoalition(1, self.message, time, clearview)
+    return self
 end
 
 function message:toBlue(time, clearview)
-    trigger.action.outTextForCoalition(2, self.message, time, clearview)
+    trigger.action.outTextForCoalition(2, self.message, time, clearview  )
+    return self
 end
 
 function message:toGroup(groupId, time, clearview)
     trigger.action.outTextForGroup(groupId, self.message, time, clearview)
+    return self
 end
 
 function message:toUnit(unitId, time, clearview)
     trigger.action.outTextForUnit(unitId, self.message, time, clearview)
+    return self
 end
 
 function message:toCountry(countryId, time, clearview)
     trigger.action.outTextForCountry(countryId, self.message, time, clearview)
+    return self
 end
 
 --[[
@@ -2347,4 +2358,4 @@ databases = database:new()
 databases:registerPayloads()
 databases:registerLiverys()
 
-log.write("ssf.lua", log.INFO, "simple scripting framework successfully loaded version "..ssf.version)
+log.write("ssf.lua", log.INFO, "successfully loaded simple scripting framework version "..ssf.version)
