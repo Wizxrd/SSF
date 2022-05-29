@@ -25,7 +25,7 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 - [ ] [util](./classes/1.main/1.util)
 - [ ] [logger](./classes/1.main/2.logger)
 - [ ] [base](./classes/1.main/3.base)
-- [ ] [databases](./classes/1.main/4.databases)
+- [ ] [database](./classes/1.main/4.database)
 - [ ] [message](./classes/1.main/5.message)
 - [ ] [scheduler](./classes/1.main/6.scheduler)
 - [ ] [handler](./classes/1.main/8.handler)

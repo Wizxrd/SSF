@@ -2,7 +2,7 @@
 - [util](./1.util)
 - [logger](./2.logger)
 - [base](./3.base)
-- [databases](./4.databases)
+- [database](./4.database)
 - [message](./5.message)
 - [scheduler](./6.scheduler)
 - [fsm](./7.fsm)
