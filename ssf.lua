@@ -603,12 +603,10 @@ function database:new()
     return self
 end
 
-function database:getObject(objectName)
-    for _, database in pairs(self) do
-        if type(database) == "table" then
-            if database[objectName] then
-                return util:deepCopy(database[objectName])
-            end
+function database:getObject(objectName, database)
+    for templateName, templateData in pairs(database) do
+        if templateName == objectName then
+            return util:deepCopy(templateData)
         end
     end
 end
@@ -1205,7 +1203,7 @@ birth.takeoff = {
 
 function birth:new(groupName)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local template = databases:getObject(groupName)
+    local template = databases:getGroupObject(groupName)
     if not template then
         self:error("birth:new(): group %s cannot be found in the database", groupName)
         return self
@@ -1760,9 +1758,9 @@ end
 
 object = {}
 
-function object:getByName(objectName)
+function object:getByName(objectName, database)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local object = databases:getObject(objectName)
+    local object = databases:getObject(objectName, database)
     if not object then
         self:error("object:new(): object %s could not be found in the database", objectName)
         return self
@@ -1857,7 +1855,7 @@ end
 unit = {}
 
 function unit:getByName(unitName)
-    local self = util:inheritParent(self, object:getByName(unitName))
+    local self = util:inheritParent(self, object:getByName(unitName, databases.unitsByName))
     if not self.object then
         self:error("unit:getByName(): unit object %s could not be found in the database", unitName)
         return self
@@ -2051,7 +2049,7 @@ end
 airbase = {}
 
 function airbase:getByName(airbaseName)
-    local self = util:inheritParent(self, object:getByName(airbaseName))
+    local self = util:inheritParent(self, object:getByName(airbaseName, databases.airbasesByName))
     if not self.object then
         self:error("airbase:getByName(): unit object %s could not be found in the database", airbaseName)
         return self
@@ -2158,7 +2156,7 @@ end
 static = {}
 
 function static:getByName(staticName)
-    local self = util:inheritParent(self, object:getByName(staticName))
+    local self = util:inheritParent(self, object:getByName(staticName, databases.staticsByName))
     if not self.object then
         self:error("static:getByName(): unit object %s could not be found in the database", staticName)
         return self
@@ -2223,9 +2221,9 @@ group = {}
 
 function group:getByName(groupName)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local group = databases:getGroupObject(groupName)
+    local group = databases:getGroupObject(groupName, databases.groupsByName)
     if not group then
-        self:error("group:getByName(): unit object %s could not be found in the database", groupName)
+        self:error("group:getByName(): group object %s could not be found in the database", groupName)
         return self
     end
     self.group = group
@@ -2359,3 +2357,17 @@ databases:registerPayloads()
 databases:registerLiverys()
 
 log.write("ssf.lua", log.INFO, "successfully loaded simple scripting framework version "..ssf.version)
+
+if unit:getByName("f16") then
+    env.error("here 1")
+    if unit:getByName("f16"):isAlive() then
+        env.erro("here 2")
+    end
+end
+
+if group:getByName("awacs") then
+    env.error("here 3")
+    if group:getByName("awacs"):isAlive() then
+        env.error("here 4")
+    end
+end
