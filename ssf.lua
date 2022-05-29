@@ -22,7 +22,7 @@ Orientated Lua Scripting for DCS World Mission Creators.
 log.write("ssf.lua", log.INFO, "loading simple scripting framework")
 
 local ssf = {}
-ssf.version = "0.0.11"
+ssf.version = "0.0.12"
 
 --
 --
@@ -401,6 +401,19 @@ function util:projectPoint(point, distance, theta)
     return newPoint
 end
 
+function util:makeVec3(vec, alt)
+    if not vec.z then
+        if vec.alt and not alt then
+            alt = vec.alt
+        elseif not alt then
+            alt = 0
+        end
+        return {x = vec.x, y = alt, z = vec.y}
+    else
+        return {x = vec.x, y = vec.y, z = vec.z}	-- it was already Vec3, actually.
+    end
+end
+
 function util:get2DDistance(fromVec3, toVec3)
     local distanceX = toVec3.x - fromVec3.x
     local distanceY = toVec3.z - fromVec3.z
@@ -532,24 +545,12 @@ end
 ]]
 
 base = {}
-base.className = "base"
-base.classId = 1
 base.source = "ssf.lua"
 base.level = 5
 
 function base:new()
     local self = util:inheritParent(base, logger:new())
-    base.classId = base.classId + 1
-    self.classId = base.classId
     return self
-end
-
-function base:getClassName()
-    return self.className
-end
-
-function base:getClassId()
-    return self.classId
 end
 
 function base:getMethod(key)
@@ -589,7 +590,7 @@ database.coalitionName = {
 }
 
 function database:new()
-    local self = util:inheritParent(self, base:new())
+    local self = util:inheritParent(database, base:new())
     self:registerGroups()
     self:registerUnits()
     self:registerStatics()
@@ -1121,7 +1122,7 @@ function handler:onEvent(dcsEvent)
             -- check if the event is for a group
             if event.group then
                     -- its for a group, now lets see if its for our group
-                if eventData.initGroupName == event.groupName then
+                if eventData.initGroupName:find(event.groupName) then
                     -- its for our group, now lets return the unit in that group to the onafter/onAfter methods for the requesting class
                     local class = event.class -- the class that called the handler
                     local eventMethod = "onEvent"..event.name
@@ -1130,7 +1131,7 @@ function handler:onEvent(dcsEvent)
             elseif event.unit then -- event is for a unit
                 -- lets check to see if it matches our unit name
                 env.error(event.unitName)
-                if eventData.initUnitName == event.unitName then
+                if eventData.initUnitName:find(event.unitName) then
                     -- its for our unit, now lets return the eventData to the onafter/onAfter methods!
                     local class = event.class -- the class that called the handler
                     local eventMethod = "onEvent"..event.name
@@ -1187,13 +1188,13 @@ birth.takeoff = {
 
 --[[ create a new instance of a birth object
 - @param #birth self
-- @param #string groupName [the late activated template groups name]
+- @param #string groupName
 - @return #birth self
 ]]
 
 function birth:new(groupName)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local template = databases:getGroupObject(groupName)
+    local template = databases:getObject(groupName)
     if not template then
         self:error("birth:new(): group %s cannot be found in the database", groupName)
         return self
@@ -1478,6 +1479,23 @@ end
 
 zone = {}
 
+function zone:new(zoneName, vec2, radius, vertices)
+    local self = util:inheritParent(self, base:new())
+    local zoneType = 0
+    if vertices then zoneType = 2 end
+    local zone = {
+        ["name"] = zoneName,
+        ["x"] = vec2.x,
+        ["y"] = vec2.y,
+        ["radius"] = radius,
+        ["type"] = zoneType,
+        ["vertices"] = vertices
+    }
+    databases:addZoneObject(zone)
+    self.zone = databases:getZoneObject(zoneName)
+    return self
+end
+
 function zone:getByName(zoneName)
     local self = util:inheritParent(self, base:new())
     local zone = databases:getZoneObject(zoneName)
@@ -1488,17 +1506,239 @@ function zone:getByName(zoneName)
     return self
 end
 
-function zone:getVec3(alt)
+function zone:getVec2()
+    local vec2 = {}
+    vec2.x = self.zone.x
+    vec2.y = self.zone.y
+    return vec2
+end
+
+function zone:getVec3()
     local vec3 = {}
     vec3.x = self.zone.x
     vec3.z = self.zone.y
-    if alt then
-        alt = alt + land.getHeight({x = self.zone.x, y = self.zone.z})
-    else
-        alt = land.getHeight({x = self.zone.x, y = self.zone.z})
-    end
-    vec3.y = alt
+    vec3.y = land.getHeight({x = self.zone.x, y = self.zone.z})
     return vec3
+end
+
+function zone:getRadius()
+    return self.zone.radius
+end
+
+function zone:getID()
+    return self.zone.id
+end
+
+function zone:getProperties()
+    return self.zone.properties
+end
+
+function zone:isHidden()
+    return self.zone.hidden
+end
+
+function zone:getName()
+    return self.zone
+end
+
+function zone:getType()
+    return self.zone.type
+end
+
+function zone:pointInCircle(point)
+    if self.zone.type == 0 then
+        local vec3 = util:makeVec3(point)
+        local zoneVec3 = self:getVec3()
+        local radius = self.zone.radius
+        radius = radius or self.zone.radius
+        if ((vec3.x - zoneVec3.x)^2 + (vec3.z - zoneVec3.z)^2)^0.5 <= radius then
+            return true
+        end
+    end
+    return false
+end
+
+function zone:pointInPolygon(point)
+    if self.zone.type == 2 then
+        local vec3 = util:makeVec3(point)
+        local vx = vec3.x
+        local vz = vec3.z
+        local count = 0
+        local polygon = util:deepCopy(self.zone.vertices)
+
+        polygon[#polygon+1] = polygon[1]
+        polygon[1] = util:makeVec3(polygon[1])
+        
+        for i = 1, #polygon do
+            polygon[i+1] = util:makeVec3(polygon[i+ 1])
+            if (polygon[i].z <= vz and polygon[i+1].z > vz) or (polygon[i].z > vz and polygon[i+1] <= vz) then
+                local vt = (vz - polygon[i].z) / (polygon[i+1].z - polygon[i].z)
+                if (vx < polygon[i].x + vt*(polygon[i+1].x - polygon[i].x)) then
+                    count = count + 1
+                end
+            end
+        end
+        return count%2 == 1
+    end
+end
+
+--[[
+
+@class #search
+
+@authors Wizard
+
+@description
+search for a collection of objects to call functions on as a whole. you must use a searchBy method before using a searchFor method.
+
+@features
+
+@created Apr 5, 2022
+
+]]
+
+search = {}
+
+--[[ create a new instance of a search object
+- @param #search self
+- @return #search self
+]]
+function search:new()
+    local self = util:inheritParent(self, base:new())
+    self.filters = {}
+    return self
+end
+
+function search:searchBySubString(subString)
+    self.subString = subString
+    return self
+end
+
+function search:searchByPrefix(prefix)
+    self.prefix = prefix
+    return self
+end
+
+function search:searchByField(field, value)
+    self.filters[field] = value
+    return self
+end
+
+function search:searchByCoalition(coalition)
+    self.filters.coalitionId = coalition
+    return self
+end
+
+function search:searchByCategory(category)
+    self.filters.categoryId = category
+    return self
+end
+
+function search:searchByCountry(countryId)
+    self.filters.countryId = countryId
+    return self
+end
+
+function search:searchForUnits()
+    local objects = {}
+    for unitName, unitData in pairs(databases.unitsByName) do
+        local filterHit = true
+        if self.subString then
+            if not string.find(unitName, self.subString) then
+                filterHit = false
+            end
+        end
+
+        if self.prefix then
+            local pfx = string.find(unitName, self.prefix, 1, true)
+            if pfx ~= 1 then
+                filterHit = false
+            end
+        end
+
+        for filterType, filterValue in pairs(self.filters) do
+            if unitData[filterType] then
+                local fieldValue = unitData[filterType]
+                if fieldValue ~= filterValue then
+                    filterHit = false
+                    break
+                end
+            end
+        end
+
+        if filterHit then
+            objects[#objects+1] = unit:getByName(unitName)
+        end
+    end
+    return objects
+end
+
+function search:searchForStatics()
+    local objects = {}
+    for staticName, staticData in pairs(databases.staticsByName) do
+        local filterHit = true
+        if self.subString then
+            if not string.find(staticName, self.subString) then
+                filterHit = false
+            end
+        end
+
+        if self.prefix then
+            local pfx = string.find(staticName, self.prefix, 1, true)
+            if pfx ~= 1 then
+                filterHit = false
+            end
+        end
+
+        for filterType, filterValue in pairs(self.filters) do
+            if staticData[filterType] then
+                local fieldValue = staticData[filterType]
+                if fieldValue ~= filterValue then
+                    filterHit = false
+                    break
+                end
+            end
+        end
+
+        if filterHit then
+            objects[#objects+1] = group:getByName(staticName)
+        end
+    end
+    return objects
+end
+
+function search:searchForGroups()
+    local objects = {}
+    for groupName, groupData in pairs(databases.groupsByName) do
+        local filterHit = true
+        if self.subString then
+            if not string.find(groupName, self.subString) then
+                filterHit = false
+            end
+        end
+
+        if self.prefix then
+            local pfx = string.find(groupName, self.prefix, 1, true)
+            if pfx ~= 1 then
+                filterHit = false
+            end
+        end
+
+        for filterType, filterValue in pairs(self.filters) do
+            if groupData[filterType] then
+                local fieldValue = groupData[filterType]
+                if fieldValue ~= filterValue then
+                    filterHit = false
+                    break
+                end
+            end
+        end
+
+        if filterHit then
+            objects[#objects+1] = group:getByName(groupName)
+        end
+    end
+    return objects
 end
 
 --
@@ -1510,7 +1750,7 @@ end
 object = {}
 
 function object:getByName(objectName)
-    local self = util:inheritParent(self, base:new())
+    local self = util:inheritParents(self, {base:new(), handler:new()})
     local object = databases:getObject(objectName)
     if not object then
         self:error("object:new(): object %s could not be found in the database", objectName)
@@ -1530,7 +1770,10 @@ function object:getCountry()
 end
 
 function object:getCategory()
-    return self.object.categoryId
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return Object.getCategory(dcsObject)
+    end
 end
 
 function object:getName()
@@ -1600,45 +1843,10 @@ function object:inAir()
     end
 end
 
-scenery = {}
-
-function scenery:getByName(sceneryName)
-    local self = util:inheritParents(self, {base:new(), handler:new(), object})
-    self.sceneryName = sceneryName
-    self.dcsObject = {id_ = sceneryName}
-    return self
-end
-
-function scenery:getDescByName()
-    local typeName = SceneryObject.getTypeName(self.dcsObject)
-    if typeName then
-        local desc = SceneryObject.getDescByName(typeName)
-        if desc then
-            return desc
-        end
-    end
-end
-
-function scenery:getDCSObject()
-    return self.dcsObject
-end
-
-function scenery:getLife()
-    return SceneryObject.getLife(self.dcsObject)
-end
-
-function scenery:getCategory()
-    return self:getDesc().category
-end
-
-function scenery:getName()
-    return self.sceneryName
-end
-
 unit = {}
 
 function unit:getByName(unitName)
-    local self = util:inheritParents(self, {object:getByName(unitName), handler:new()})
+    local self = util:inheritParent(self, object:getByName(unitName))
     if not self.object then
         self:error("unit:getByName(): unit object %s could not be found in the database", unitName)
         return self
@@ -1652,10 +1860,6 @@ function unit:handleEvent(event)
     return self
 end
 
-function unit:getDescByName()
-    return Unit.getDescByName(self.object.typeName)
-end
-
 function unit:getDCSObject()
     local dcsUnit = Unit.getByName(self.unitName)
     if dcsUnit then
@@ -1663,10 +1867,180 @@ function unit:getDCSObject()
     end
 end
 
+function unit:getDCSGroup()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getGroup()
+    end
+    return nil
+end
+
+function unit:getGroup()
+    local groupName = self.object.group.name
+    return util:deepCopy(group:getByName(groupName))
+end
+
+function unit:isAlive()
+    local dcsUnit = Unit.getByName(self.unitName)
+    if dcsUnit then
+        if dcsUnit:isActive() and dcsUnit:isExist() and dcsUnit:getLife() ~= 0 then
+            return true
+        end
+    end
+    return false
+end
+
+--
+-- **dcs unit wrapped methods **--
+--
+
+function unit:getDescByName(typeName)
+    return Unit.getDescByName(typeName or self.object.typeName)
+end
+
+function unit:isActive()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:isActive()
+    end
+    return nil
+end
+
+function unit:getPlayerName()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        local playerName = unit:getPlayerName()
+        if playerName then
+            return playerName
+        end
+    end
+    return nil
+end
+
+function unit:getID()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getID()
+    end
+    return nil
+end
+
+function unit:getNumber()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getNumber()
+    end
+    return nil
+end
+
+function unit:getController()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getController()
+    end
+    return nil
+end
+
+function unit:getCallsign()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getCallsign()
+    end
+    return nil
+end
+
+function unit:getLife()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getLife()
+    end
+    return nil
+end
+
+function unit:getLife0()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getLife0()
+    end
+    return nil
+end
+
+function unit:getFuel()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getFuel()
+    end
+    return nil
+end
+
+function unit:getAmmo()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getAmmo()
+    end
+    return nil
+end
+
+function unit:getSensors()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getSensors()
+    end
+    return nil
+end
+
+function unit:hasSensors()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:hasSensors()
+    end
+    return nil
+end
+
+function unit:getRadar()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getRadar()
+    end
+    return nil
+end
+
+function unit:getDrawArgumentValue()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getDrawArgumentValue()
+    end
+    return nil
+end
+
+function unit:getNearestCargos()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getNearestCargos()
+    end
+    return nil
+end
+
+function unit:enableEmission(bool)
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:enableEmission(bool)
+    end
+    return nil
+end
+
+function unit:getDescentCapacity()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getDescentCapacity()
+    end
+    return nil
+end
+
 airbase = {}
 
 function airbase:getByName(airbaseName)
-    local self = util:inheritParents(self, {object:getByName(airbaseName), handler:new()})
+    local self = util:inheritParent(self, object:getByName(airbaseName))
     if not self.object then
         self:error("airbase:getByName(): unit object %s could not be found in the database", airbaseName)
         return self
@@ -1679,23 +2053,6 @@ function airbase:getDCSObject()
     local dcsObject = Airbase.getByName(self.airbaseName)
     if dcsObject then
         return dcsObject
-    end
-end
-
-function airbase:getID()
-    local dcsAirbase = self:getDCSObject()
-    if dcsAirbase then
-        return dcsAirbase:getID()
-    end
-end
-
-function airbase:getParking()
-    local dcsAirbase = self:getDCSObject()
-    if dcsAirbase then
-        local parking = dcsAirbase:getParking()
-        if parking then
-            return parking
-        end
     end
 end
 
@@ -1720,10 +2077,77 @@ function airbase:getTerminalData(parkingSpots)
     end
 end
 
+--
+-- **dcs airbase wrapped methods **--
+--
+
+function airbase:getDesc()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getDesc()
+    end
+end
+
+function airbase:getCallsign()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getCallsign()
+    end
+end
+
+function airbase:getDCSUnit()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getDCSUnit()
+    end
+end
+
+function airbase:getID()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getID()
+    end
+end
+
+function airbase:getParking()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getParking()
+    end
+end
+
+function airbase:getRunways()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getRunways()
+    end
+end
+
+function airbase:getTechObjectPos()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getTechObjectPos()
+    end
+end
+
+function airbase:getRadioSilentMode()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getRadioSilentMode()
+    end
+end
+
+function airbase:setRadioSilentMode(silent)
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:setRadioSilentMode(silent or false)
+    end
+end
+
 static = {}
 
 function static:getByName(staticName)
-    local self = util:inheritParents(self, {object:getByName(staticName), handler:new()})
+    local self = util:inheritParent(self, object:getByName(staticName))
     if not self.object then
         self:error("static:getByName(): unit object %s could not be found in the database", staticName)
         return self
@@ -1733,9 +2157,54 @@ function static:getByName(staticName)
 end
 
 function static:getDCSObject()
-    local dcsObject = StaticObject.getByName(self.staticName)
-    if dcsObject then
-        return dcsObject
+    local dcsStatic = StaticObject.getByName(self.staticName)
+    if dcsStatic then
+        return dcsStatic
+    end
+end
+
+function static:isAlive()
+    local dcsStatic = self:getDCSObject()
+    if dcsStatic then
+        if dcsStatic:isExist() and dcsStatic:getLife() ~= 0 then
+            return true
+        end
+    end
+    return false
+end
+
+function static:getID()
+    local dcsStatic = self:getDCSObject()
+    if dcsStatic then
+        return dcsStatic:getID()
+    end
+end
+
+function static:getLife()
+    local dcsStatic = self:getDCSObject()
+    if dcsStatic then
+        return dcsStatic:getLife()
+    end
+end
+
+function static:getCargoDisplayName()
+    local dcsStatic = self:getDCSObject()
+    if dcsStatic then
+        return dcsStatic:getCargoDisplayName()
+    end
+end
+
+function static:getCargoWeight()
+    local dcsStatic = self:getDCSObject()
+    if dcsStatic then
+        return dcsStatic:getCargoWeight()
+    end
+end
+
+function static:getDrawArgumentValue()
+    local dcsStatic = self:getDCSObject()
+    if dcsStatic then
+        return dcsStatic:getDrawArgumentValue()
     end
 end
 
@@ -1757,6 +2226,117 @@ function group:getDCSGroup()
     local dcsGroup = Group.getByName(self.groupName)
     if dcsGroup then
         return dcsGroup
+    end
+end
+
+function group:isAlive()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        local dcsUnit = self:getUnit(1)
+        if dcsUnit then
+            if dcsUnit:isActive() and dcsUnit:isExist() and dcsUnit:getLife() ~= 0 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function group:isExist()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:isExist()
+    end
+end
+
+function group:activate()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:activate()
+    end
+end
+
+function group:activate()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:activate()
+    end
+end
+
+function group:destroy()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:destroy()
+    end
+end
+
+function group:getCategory()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getCategory()
+    end
+end
+
+function group:getCoalition()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getCoalition()
+    end
+end
+
+function group:getName()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getName()
+    end
+end
+
+function group:getID()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getID()
+    end
+end
+
+function group:getUnit(unitId)
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getUnit(unitId)
+    end
+end
+
+function group:getUnits()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getUnits()
+    end
+end
+
+function group:getSize()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getSize()
+    end
+end
+
+function group:getInitialSize()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getInitialSize()
+    end
+end
+
+function group:getController()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getController()
+    end
+end
+
+function group:enableEmission()
+    local dcsGroup = self:getDCSGroup()
+    if dcsGroup then
+        return dcsGroup:getController()
     end
 end
 

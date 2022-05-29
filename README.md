@@ -15,7 +15,7 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 
 ## [***enumerators***](./enumerators)
 - [X] [waypoint](./enumerators/1.waypoint)
-- [X] [weaponFlag](./enumerators/2.weaponFlag)
+- [X] [weapon](./enumerators/2.weapon)
 - [X] [event](./enumerators/3.event)
 - [X] [smoke](./enumerators/4.smoke) 
 
@@ -28,14 +28,14 @@ Visual Studio Code is recommened but is not required to use as your code editor.
 - [ ] [databases](./classes/1.main/4.databases)
 - [ ] [message](./classes/1.main/5.message)
 - [ ] [scheduler](./classes/1.main/6.scheduler)
-- [X] [fsm](./classes/1.main/7.fsm)
 - [ ] [handler](./classes/1.main/8.handler)
 - [ ] [birth](./classes/1.main/9.birth)
 - [ ] [search](./classes/1.main/10.search)
 - [ ] [zone](./classes/1.main/11.zone)
 
 ### [***wrappers***](./classes/2.wrapper)
-- [ ] [unit](./classes/2.wrapper/1.unit)
-- [ ] [static](./classes/2.wrapper/2.static)
+- [ ] [object](./classes/2.wrapper\1.object)
+- [ ] [unit](./classes/2.wrapper/2.unit)
 - [ ] [airbase](./classes/2.wrapper/3.airbase)
-- [ ] [group](./classes/2.wrapper/4.group)
+- [ ] [static](./classes/2.wrapper/4.static)
+- [ ] [group](./classes/2.wrapper/5.group)
