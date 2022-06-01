@@ -74,7 +74,7 @@ enum.waypoint = {
 @enum #weapon
 
 @description
-constant table of weaponFlags with corresponding values
+constant table of weapon flags with corresponding values
 
 @features
 - coverage of all weapon flags
@@ -603,6 +603,28 @@ function database:new()
     return self
 end
 
+function database:getBirthTemplate(objectName)
+    if self:getGroupObject(objectName) then
+        local template = self:getGroupObject(objectName)
+        template.birthCategory = 1
+        return template
+    elseif self:getUnitObject(objectName) then
+        local template = self:getUnitObject(objectName)
+        template = template.group
+        for i, unit in pairs(template.units) do
+            if unit.name ~= objectName then
+                table.remove(template.units, i)
+            end
+        end
+        template.birthCategory = 2
+        return template
+    elseif self:getStaticObject(objectName) then
+        local template = self:getStaticObject(objectName)
+        template.birthCategory = 3
+        return template
+    end
+end
+
 function database:getObject(objectName, database)
     for templateName, templateData in pairs(database) do
         if templateName == objectName then
@@ -742,7 +764,7 @@ function database:registerUnits()
                             for _, groupData in pairs(objectData.group) do
                                 for _, unitData in pairs(groupData.units) do
                                     self.unitsByName[unitData.name] = util:deepCopy(unitData)
-                                    self.unitsByName[unitData.name].group = util:deepCopy(groupData)
+                                    self.unitsByName[unitData.name].group = self.groupsByName[groupData.name]
                                     self.unitsByName[unitData.name].typeName = unitData.type
                                     self.unitsByName[unitData.name].coalitionId = coalition.side[sideName:upper()]
                                     self.unitsByName[unitData.name].coalitionName = coalition.side[sideName:upper()]
@@ -773,9 +795,7 @@ function database:registerStatics()
                             for _, staticData in pairs(objectData.group) do
                                 local staticName = staticData.units[1].name
                                 local staticCategory = StaticObject.getByName(staticName):getDesc().category
-                                self.staticsByName[staticName] = util:deepCopy(staticData.units)
-                                self.staticsByName[staticName].name = staticName
-                                self.staticsByName[staticName].typeName = staticData.type
+                                self.staticsByName[staticName] = util:deepCopy(staticData.units[1])
                                 self.staticsByName[staticName].coalitionId = coalition.side[sideName:upper()]
                                 self.staticsByName[staticName].coalitionName = sideName:upper()
                                 self.staticsByName[staticName].countryId = countryData.id
@@ -1203,13 +1223,14 @@ birth.takeoff = {
 
 function birth:new(groupName)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local template = databases:getGroupObject(groupName)
+    local template = Database:getBirthTemplate(groupName)
     if not template then
         self:error("birth:new(): group %s cannot be found in the database", groupName)
         return self
     end
     self.templateName = groupName
     self.template = template
+    self.birthCategory = self.template.birthCategory
     self.countryId = self.template.countryId
     self.categoryId = self.template.categoryId
     self.coalitionId = self.template.coalitionId
@@ -1250,26 +1271,24 @@ function birth:setAlias(alias)
     return self
 end
 
-function birth:setLimit(groupLimit, unitLimit)
+function birth:setGroupLimit(groupLimit)
     self.groupLimit = groupLimit
+    return self
+end
+
+function birth:setUnitLimit(unitLimit)
     self.unitLimit = unitLimit
     return self
 end
 
-function birth:setPayload(unitId, unitName)
-    self.payload = util:deepCopy(databases.payloadsByUnitName[unitName])
+function birth:setStaticLimit(staticLimit)
+    self.staticLimit = staticLimit
     return self
 end
 
-function birth:setLivery(unitId, unitName)
-    self.livery = util:deepCopy(databases.liverysByUnitName[unitName])
-    return self
-end
-
-function birth:setCountry(countryName)
-    if country.id[countryName] then
-        self.countryId = country.id[countryName]
-    end
+function birth:scheduled(scheduleTime)
+    self.scheduledBirth = true
+    self.scheduleTime = scheduleTime
     return self
 end
 
@@ -1279,87 +1298,18 @@ function birth:birth()
     return self
 end
 
-function birth:birthScheduled(scheduleTime)
-    self.birthTemplate = util:deepCopy(self.template)
-    self.scheduleTime = scheduleTime
-    self:_initialize()
+function birth:birthFromRandomVec3(vectorList, alt)
+    local randomNum = math.random(1, #vectorList)
+    self:birthFromVec3(vectorList[randomNum], alt)
     return self
 end
 
 function birth:birthFromVec3(vec3, alt)
     self:debug("birth:birthFromVec3(): preparing template %s for birth from a vec3", self.templateName)
     self.birthTemplate = util:deepCopy(self.template)
-    if self.categoryId == Group.Category.GROUND then
-        alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
-    elseif self.categoryId == Group.Category.SHIP then
-        alt = 0
-    elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
-        if not alt then
-            self:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
-            return self
-        end
-        alt = alt
-    end
-    for _, unitData in pairs(self.template.units) do
-        local sX = unitData.x or 0
-        local sY = unitData.y  or 0
-        local bX = self.template.route.points[1].x
-        local bY = self.template.route.points[1].y
-        local tX = vec3.x + (sX - bX)
-        local tY = vec3.z + (sY - bY)
-        unitData.alt = alt
-        unitData.x = tX
-        unitData.y = tY
-    end
-
-    self.birthTemplate.route.points[1].alt = alt
-    self.birthTemplate.route.points[1].x = vec3.x
-    self.birthTemplate.route.points[1].y = vec3.z
-    self:_initialize()
-    return self
-end
-
-function birth:birthFromAirbase(airbaseName, takeoffType, parkingSpots)
-    self.birthTemplate = util:deepCopy(self.template)
-    local birthAirbase = airbase:getByName(airbaseName)
-    if birthAirbase then
-        local birthAirbaseVec3 = birthAirbase:getPoint()
-        local birthAirbaseId = birthAirbase:getID()
-        local birthAirbaseCategory = birthAirbase:getCategory()
-        local birthWaypoint = self.birthTemplate.route.points[1]
-        birthWaypoint.type = takeoffType.type
-        birthWaypoint.action = takeoffType.action
-        birthWaypoint.x = birthAirbaseVec3.x
-        birthWaypoint.y = birthAirbaseVec3.z
-        if birthAirbaseCategory == 0 then -- airbases
-            birthWaypoint.airdromeId = birthAirbaseId
-        elseif birthAirbaseCategory == 1 or birthAirbaseCategory == 2 then -- ships get named with this?
-            birthWaypoint.helipadId = birthAirbaseId
-        end
-        if parkingSpots then
-            if birthAirbaseCategory ~= 2 then
-                local parkingData = birthAirbase:getTerminalData(parkingSpots)
-                birthWaypoint.x = parkingData[1].termVec3.x
-                birthWaypoint.y = parkingData[1].termVec3.z
-                for unitId, unitData in ipairs(self.birthTemplate.units) do
-                    unitData.parking = parkingData[unitId].termIndex
-                    unitData.x = parkingData[unitId].termVec3.x
-                    unitData.y = parkingData[unitId].termVec3.z
-                end
-            end
-        end
-        self:_initialize()
-        return self
-    end
-end
-
-function birth:birthFromZone(zoneName, alt)
-    self.birthTemplate = util:deepCopy(self.template)
-    local birthZone = zone:getByName(zoneName)
-    if birthZone then
-        local birthZoneVec3 = birthZone:getVec3()
+    if self.birthCategory == 1 then
         if self.categoryId == Group.Category.GROUND then
-            alt = land.getHeight({["x"] = birthZoneVec3.x, ["y"] = birthZoneVec3.z})
+            alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
         elseif self.categoryId == Group.Category.SHIP then
             alt = 0
         elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
@@ -1372,17 +1322,115 @@ function birth:birthFromZone(zoneName, alt)
         for _, unitData in pairs(self.birthTemplate.units) do
             local sX = unitData.x or 0
             local sY = unitData.y  or 0
-            local bX = self.birthTemplate.route.points[1].x
-            local bY = self.birthTemplate.route.points[1].y
-            local tX = birthZoneVec3.x + (sX - bX)
-            local tY = birthZoneVec3.z + (sY - bY)
+            local bX = self.birthTemplate.route.points[1].x or self.birthTemplate.x
+            local bY = self.birthTemplate.route.points[1].y or self.birthTemplate.y
+            local tX = vec3.x + (sX - bX)
+            local tY = vec3.z + (sY - bY)
             unitData.alt = alt
             unitData.x = tX
             unitData.y = tY
         end
         self.birthTemplate.route.points[1].alt = alt
-        self.birthTemplate.route.points[1].x = birthZoneVec3.x
-        self.birthTemplate.route.points[1].y = birthZoneVec3.z
+        self.birthTemplate.route.points[1].x = vec3.x
+        self.birthTemplate.route.points[1].y = vec3.z
+    else
+        alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
+        self.birthTemplate.alt = alt
+        self.birthTemplate.x = vec3.x
+        self.birthTemplate.y = vec3.z
+    end
+    self:_initialize()
+    return self
+end
+
+function birth:birthFromRandomAirbase(airbaseList, takeoffType)
+    local randomNum = math.random(1, #airbaseList)
+    self:birthFromAirbase(airbaseList[randomNum], takeoffType)
+    return self
+end
+
+function birth:birthFromAirbase(airbaseName, takeoffType, parkingSpots)
+    self.birthTemplate = util:deepCopy(self.template)
+    local birthAirbase = airbase:getByName(airbaseName)
+    if birthAirbase then
+        local birthAirbaseVec3 = birthAirbase:getPoint()
+        local birthAirbaseId = birthAirbase:getID()
+        local birthAirbaseCategory = birthAirbase:getCategory()
+        self.birthTemplate.route.points[1].type = takeoffType.type
+        self.birthTemplate.route.points[1].action = takeoffType.action
+        self.birthTemplate.route.points[1].x = birthAirbaseVec3.x
+        self.birthTemplate.route.points[1].y = birthAirbaseVec3.z
+        if birthAirbaseCategory == 0 then -- airbases
+            self.birthTemplate.route.points[1].airdromeId = birthAirbaseId
+            env.error(birthAirbaseId)
+        elseif birthAirbaseCategory == 1 or birthAirbaseCategory == 2 then
+            self.birthTemplate.route.points[1].helipadId = birthAirbaseId
+        end
+        if parkingSpots then
+            if birthAirbaseCategory ~= 2 then
+                local parkingData = birthAirbase:getTerminalData(parkingSpots)
+                self.birthTemplate.route.points[1].x = parkingData[1].termVec3.x
+                self.birthTemplate.route.points[1].y = parkingData[1].termVec3.z
+                for unitId, unitData in ipairs(self.birthTemplate.units) do
+                    unitData.parking = parkingData[unitId].termIndex
+                    unitData.x = parkingData[unitId].termVec3.x
+                    unitData.y = parkingData[unitId].termVec3.z
+                end
+            end
+        else
+            for _, unitData in ipairs(self.birthTemplate.units) do
+                unitData.x = birthAirbaseVec3.x
+                unitData.y = birthAirbaseVec3.z
+            end
+        end
+        self:_initialize()
+        return self
+    end
+end
+
+function birth:birthFromRandomZone(zoneList, alt)
+    local randomNum = math.random(1, #zoneList)
+    self:birthFromZone(zoneList[randomNum], alt)
+    return self
+end
+
+function birth:birthFromZone(zoneName, alt)
+    local birthZone = zone:getByName(zoneName)
+    if birthZone then
+        self.birthTemplate = util:deepCopy(self.template)
+        local birthZoneVec3 = birthZone:getVec3()
+        if self.birthCategory ~= 3 then
+            if self.categoryId == Group.Category.GROUND then
+                alt = land.getHeight({["x"] = birthZoneVec3.x, ["y"] = birthZoneVec3.z})
+            elseif self.categoryId == Group.Category.SHIP then
+                alt = 0
+            elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
+                if not alt then
+                    self:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
+                    return self
+                end
+                alt = alt
+            end
+            for _, unitData in pairs(self.birthTemplate.units) do
+                local sX = unitData.x or 0
+                local sY = unitData.y  or 0
+                local bX = self.birthTemplate.route.points[1].x or self.birthTemplate.x
+                local bY = self.birthTemplate.route.points[1].y or self.birthTemplate.y
+                local tX = birthZoneVec3.x + (sX - bX)
+                local tY = birthZoneVec3.z + (sY - bY)
+                unitData.alt = alt
+                unitData.x = tX
+                unitData.y = tY
+            end
+            self.birthTemplate.route.points[1].alt = alt
+            self.birthTemplate.route.points[1].x = birthZoneVec3.x
+            self.birthTemplate.route.points[1].y = birthZoneVec3.z
+        else
+            alt = land.getHeight({["x"] = birthZoneVec3.x, ["y"] = birthZoneVec3.z})
+            self.birthTemplate.alt = alt
+            self.birthTemplate.x = birthZoneVec3.x
+            self.birthTemplate.y = birthZoneVec3.z
+        end
         self:_initialize()
         return self
     end
@@ -1412,6 +1460,18 @@ function birth:_updateActiveUnits()
     return self
 end
 
+function birth:_updateActiveStatics()
+    self.activeStatics = {}
+    for _, staticName in pairs(self.bornStatics) do
+        if static:getByName(staticName) then
+            if static:getByName(staticName):isAlive() then
+                self.activeStatics[#self.activeStatics+1] = staticName
+            end
+        end
+    end
+    return self
+end
+
 function birth:_witihinGroupLimit()
     self:_updateActiveGroups()
     if #self.activeGroups < self.groupLimit then
@@ -1428,31 +1488,50 @@ function birth:_withinUnitLimit()
     return false
 end
 
+function birth:_withinStaticLimit()
+    self:_updateActiveStatics()
+    if #self.activeStatics <= self.staticLimit then
+        return true
+    end
+    return false
+end
+
 function birth:_initialize()
-    if not self.groupLimit and not self.unitLimit then
-        -- not group limit and not unit limit
-        self:_addGroup()
-        return self
-    elseif self.groupLimit and self.unitLimit then
-        if self:_witihinGroupLimit() and self:_withinUnitLimit() then
+    if self.birthCategory ~= 3 then
+        if not self.groupLimit and not self.unitLimit then
+            -- not group limit and not unit limit
             self:_addGroup()
             return self
+        elseif self.groupLimit and self.unitLimit then
+            if self:_witihinGroupLimit() and self:_withinUnitLimit() then
+                self:_addGroup()
+                return self
+            end
+        elseif self.groupLimit and not self.unitLimit then
+            if self:_witihinGroupLimit() then
+                self:_addGroup()
+                return self
+            end
+        elseif not self.groupLimit and self.unitLimit then
+            if self:_withinUnitLimit() then
+                self:_addGroup()
+                return self
+            end
         end
-    elseif self.groupLimit and not self.unitLimit then
-        if self:_witihinGroupLimit() then
-            self:_addGroup()
-            return self
-        end
-    elseif not self.groupLimit and self.unitLimit then
-        if self:_withinUnitLimit() then
-            self:_addGroup()
+    else
+        if self.staticLimit then
+            if self:_withinStaticLimit() then
+                self:_addStatic()
+                return self
+            end
+        else
+            self:_addStatic()
             return self
         end
     end
 end
 
 function birth:_addGroup()
-    if self.schedulerId then self.schedulerId = nil end
     if not self.keepGroupName then
         if self.alias then
             self.groupName = self.alias
@@ -1473,17 +1552,33 @@ function birth:_addGroup()
     coalition.addGroup(self.countryId, self.categoryId, self.birthTemplate)
     self.count = self.count + 1
     self.bornGroups[#self.bornGroups+1] = self.groupName
-    databases:addGroupObject(self.birthTemplate)
+    Database:addGroupObject(self.birthTemplate)
     for _, unitData in pairs(self.birthTemplate.units) do
         self.bornUnits[#self.bornUnits+1] = unitData.name
-        databases:addUnitObject(unitData)
+        Database:addUnitObject(unitData)
     end
-    if self.scheduleTime then
-        local scheduleBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
-        self.schedulerId = scheduleBirth.functionId
+    if self.scheduledBirth then
+        if self.schedulerId then self.schedulerId = nil end
+        local scheduledBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
+        self.schedulerId = scheduledBirth.functionId
     end
     self:debug("birth:_addGroup(): %s has been born into the world", self.groupName)
     return self
+end
+
+function birth:_addStatic()
+    if not self.keepUnitNames and self.birthCategory ~= 3 then
+        self.birthTemplate.name = self.templateName.." #"..self.count + 1
+    end
+    coalition.addStaticObject(self.countryId, self.birthTemplate)
+    self.count = self.count + 1
+    Database:addStaticObject(self.birthTemplate)
+    if self.scheduledBirth then
+        if self.schedulerId then self.schedulerId = nil end
+        local scheduledBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
+        self.schedulerId = scheduledBirth.functionId
+    end
+    self:debug("birth:_addStatic(): %s has been born into the world", self.birthTemplate.name)
 end
 
 zone = {}
@@ -1500,14 +1595,14 @@ function zone:new(zoneName, vec2, radius, vertices)
         ["type"] = zoneType,
         ["vertices"] = vertices
     }
-    databases:addZoneObject(zone)
-    self.zone = databases:getZoneObject(zoneName)
+    Database:addZoneObject(zone)
+    self.zone = Database:getZoneObject(zoneName)
     return self
 end
 
 function zone:getByName(zoneName)
     local self = util:inheritParent(self, base:new())
-    local zone = databases:getZoneObject(zoneName)
+    local zone = Database:getZoneObject(zoneName)
     if not zone then
         return self
     end
@@ -1650,7 +1745,7 @@ end
 
 function search:searchForUnits()
     local objects = {}
-    for unitName, unitData in pairs(databases.unitsByName) do
+    for unitName, unitData in pairs(Database.unitsByName) do
         local filterHit = true
         if self.subString then
             if not string.find(unitName, self.subString) then
@@ -1684,7 +1779,7 @@ end
 
 function search:searchForStatics()
     local objects = {}
-    for staticName, staticData in pairs(databases.staticsByName) do
+    for staticName, staticData in pairs(Database.staticsByName) do
         local filterHit = true
         if self.subString then
             if not string.find(staticName, self.subString) then
@@ -1718,7 +1813,7 @@ end
 
 function search:searchForGroups()
     local objects = {}
-    for groupName, groupData in pairs(databases.groupsByName) do
+    for groupName, groupData in pairs(Database.groupsByName) do
         local filterHit = true
         if self.subString then
             if not string.find(groupName, self.subString) then
@@ -1760,7 +1855,7 @@ object = {}
 
 function object:getByName(objectName, database)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local object = databases:getObject(objectName, database)
+    local object = Database:getObject(objectName, database)
     if not object then
         self:error("object:new(): object %s could not be found in the database", objectName)
         return self
@@ -1855,7 +1950,7 @@ end
 unit = {}
 
 function unit:getByName(unitName)
-    local self = util:inheritParent(self, object:getByName(unitName, databases.unitsByName))
+    local self = util:inheritParent(self, object:getByName(unitName, Database.unitsByName))
     if not self.object then
         self:error("unit:getByName(): unit object %s could not be found in the database", unitName)
         return self
@@ -1873,6 +1968,13 @@ function unit:getDCSObject()
     local dcsUnit = Unit.getByName(self.unitName)
     if dcsUnit then
         return dcsUnit
+    end
+end
+
+function unit:getCategory()
+    local dcsUnit = self:getDCSObject()
+    if dcsUnit then
+        return dcsUnit:getDesc().category
     end
 end
 
@@ -2049,7 +2151,7 @@ end
 airbase = {}
 
 function airbase:getByName(airbaseName)
-    local self = util:inheritParent(self, object:getByName(airbaseName, databases.airbasesByName))
+    local self = util:inheritParent(self, object:getByName(airbaseName, Database.airbasesByName))
     if not self.object then
         self:error("airbase:getByName(): unit object %s could not be found in the database", airbaseName)
         return self
@@ -2062,6 +2164,13 @@ function airbase:getDCSObject()
     local dcsObject = Airbase.getByName(self.airbaseName)
     if dcsObject then
         return dcsObject
+    end
+end
+
+function airbase:getCategory()
+    local dcsAirbase = self:getDCSObject()
+    if dcsAirbase then
+        return dcsAirbase:getDesc().category
     end
 end
 
@@ -2156,7 +2265,7 @@ end
 static = {}
 
 function static:getByName(staticName)
-    local self = util:inheritParent(self, object:getByName(staticName, databases.staticsByName))
+    local self = util:inheritParent(self, object:getByName(staticName, Database.staticsByName))
     if not self.object then
         self:error("static:getByName(): unit object %s could not be found in the database", staticName)
         return self
@@ -2169,6 +2278,13 @@ function static:getDCSObject()
     local dcsStatic = StaticObject.getByName(self.staticName)
     if dcsStatic then
         return dcsStatic
+    end
+end
+
+function static:getCategory()
+    local dcsStatic = self:getDCSObject()
+    if dcsStatic then
+        return dcsStatic:getDesc().category
     end
 end
 
@@ -2221,7 +2337,7 @@ group = {}
 
 function group:getByName(groupName)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local group = databases:getGroupObject(groupName, databases.groupsByName)
+    local group = Database:getGroupObject(groupName, Database.groupsByName)
     if not group then
         self:error("group:getByName(): group object %s could not be found in the database", groupName)
         return self
@@ -2351,23 +2467,9 @@ end
 
 -- ** initialization ** --
 
-databases = database:new()
+Database = database:new()
 -- optional database registrations
-databases:registerPayloads()
-databases:registerLiverys()
+Database:registerPayloads()
+Database:registerLiverys()
 
 log.write("ssf.lua", log.INFO, "successfully loaded simple scripting framework version "..ssf.version)
-
-if unit:getByName("f16") then
-    env.error("here 1")
-    if unit:getByName("f16"):isAlive() then
-        env.erro("here 2")
-    end
-end
-
-if group:getByName("awacs") then
-    env.error("here 3")
-    if group:getByName("awacs"):isAlive() then
-        env.error("here 4")
-    end
-end
