@@ -1987,7 +1987,7 @@ function object:getByName(objectName)
     local self = util:inheritParents(self, {base:new(), handler:new()})
     local object = Database:getObject(objectName)
     if not object then
-        self:error("object:new(): object %s could not be found in the database", objectName)
+        self:error("object:getByName(): object %s could not be found in the database", objectName)
         return self
     end
     self.objectName = objectName
@@ -2086,7 +2086,7 @@ end
 unit = {}
 
 function unit:getByName(unitName)
-    local self = util:inheritParent(self, object:new(unitName))
+    local self = util:inheritParent(self, object:getByName(unitName))
     if not self.object then
         self:error("unit:getByName(): unit object %s could not be found in the database", unitName)
         return self
