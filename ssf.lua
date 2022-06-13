@@ -13,7 +13,7 @@ Orientated Lua Scripting for DCS World Mission Creators.
 
 @created Jan 30, 2022
 
-@version 0.0.12
+@version 0.0.13
 
 @todo
 
@@ -22,7 +22,7 @@ Orientated Lua Scripting for DCS World Mission Creators.
 log.write("ssf.lua", log.INFO, "loading simple scripting framework")
 
 local ssf = {}
-ssf.version = "0.0.12"
+ssf.version = "0.0.13"
 
 --
 --
@@ -369,14 +369,14 @@ function util:deepCopy(object)
 end
 
 function util:inheritParent(child, parent)
-    local child = util:deepCopy(child)
-    setmetatable(child, {__index = parent})
-    return child
+    local Child = util:deepCopy(child)
+    setmetatable(Child, {__index = parent})
+    return Child
 end
 
 function util:inheritParents(child, parents)
-    local child = util:deepCopy(child)
-    local parents = {
+    local Child = util:deepCopy(child)
+    local Parents = {
         __index = function(_, key)
             for i = 1, #parents do
                 local parent = parents[i]
@@ -386,8 +386,21 @@ function util:inheritParents(child, parents)
             end
         end
     }
-    setmetatable(child, parents)
-    return child
+    setmetatable(child, Parents)
+    return Child
+end
+
+function util:makeVec3(vec, alt)
+    if not vec.z then
+        if vec.y and not alt then
+            alt = vec.y
+        elseif not alt then
+            alt = 0
+        end
+        return {x = vec.x, y = alt, z = vec.y}
+    else
+        return {x = vec.x, y = vec.y, z = vec.z}	-- it was already Vec3, actually.
+    end
 end
 
 function util:projectPoint(point, distance, theta)
@@ -401,17 +414,29 @@ function util:projectPoint(point, distance, theta)
     return newPoint
 end
 
-function util:makeVec3(vec, alt)
-    if not vec.z then
-        if vec.alt and not alt then
-            alt = vec.alt
-        elseif not alt then
-            alt = 0
-        end
-        return {x = vec.x, y = alt, z = vec.y}
-    else
-        return {x = vec.x, y = vec.y, z = vec.z}	-- it was already Vec3, actually.
-    end
+function util:pointInPolygon(point, poly, maxalt)
+	point = util:makeVec3(point)
+	local px = point.x
+	local pz = point.z
+	local cn = 0
+	local newpoly = util:deepCopy(poly)
+	if not maxalt or (point.y <= maxalt) then
+		local polysize = #newpoly
+		newpoly[#newpoly + 1] = newpoly[1]
+		newpoly[1] = util:makeVec3(newpoly[1])
+		for k = 1, polysize do
+			newpoly[k+1] = util:makeVec3(newpoly[k+1])
+			if ((newpoly[k].z <= pz) and (newpoly[k+1].z > pz)) or ((newpoly[k].z > pz) and (newpoly[k+1].z <= pz)) then
+				local vt = (pz - newpoly[k].z) / (newpoly[k+1].z - newpoly[k].z)
+				if (px < newpoly[k].x + vt*(newpoly[k+1].x - newpoly[k].x)) then
+					cn = cn + 1
+				end
+			end
+		end
+		return cn%2 == 1
+	else
+		return false
+	end
 end
 
 function util:get2DDistance(fromVec3, toVec3)
@@ -561,7 +586,7 @@ end
 
 --[[
 
-@class #datbases
+@class #database
 
 @authors Wizard
 
@@ -603,30 +628,18 @@ function database:new()
     return self
 end
 
-function database:getBirthTemplate(objectName)
-    if self:getGroupObject(objectName) then
-        local template = self:getGroupObject(objectName)
-        template.birthCategory = 1
-        return template
-    elseif self:getUnitObject(objectName) then
-        local template = self:getUnitObject(objectName)
-        template = template.group
-        for i, unit in pairs(template.units) do
-            if unit.name ~= objectName then
-                table.remove(template.units, i)
-            end
-        end
-        template.birthCategory = 2
-        return template
-    elseif self:getStaticObject(objectName) then
-        local template = self:getStaticObject(objectName)
-        template.birthCategory = 3
-        return template
+function database:getTemplate(templateName)
+    if self:getGroupObject(templateName) then
+        return self:getGroupObject(templateName)
+    elseif self:getUnitObject(templateName) then
+        return self:getUnitObject(templateName)
+    elseif self:getStaticObject(templateName) then
+        return self:getStaticObject(templateName), true
     end
 end
 
-function database:getObject(objectName, database)
-    for templateName, templateData in pairs(database) do
+function database:getObject(objectName)
+    for templateName, templateData in pairs(self.objectsByName) do
         if templateName == objectName then
             return util:deepCopy(templateData)
         end
@@ -675,6 +688,11 @@ function database:getClientObject(unitName)
     end
 end
 
+function database:addObject(object)
+    self.objectsByName[object.name] = util:deepCopy(object)
+    return self
+end
+
 function database:addGroupObject(groupObject)
     self.groupsByName[groupObject.name] = util:deepCopy(groupObject)
     return self
@@ -697,6 +715,11 @@ end
 
 function database:addZoneObject(zoneObject)
     self.zonesByName[zoneObject.name] = util:deepCopy(zoneObject)
+    return self
+end
+
+function database:removeObject(object)
+    self.objectsByName[object.name] = nil
     return self
 end
 
@@ -735,6 +758,9 @@ function database:registerGroups()
                     for categoryName, objectData in pairs(countryData) do
                         if categoryName == "plane" or categoryName == "helicopter" or categoryName == "vehicle" or categoryName == "ship" then
                             for _, groupData in pairs(objectData.group) do
+                                if groupData.lateActivation then
+                                    groupData.lateActivation = false
+                                end
                                 self.groupsByName[groupData.name] = util:deepCopy(groupData)
                                 self.groupsByName[groupData.name].coalitionId = coalition.side[sideName:upper()]
                                 self.groupsByName[groupData.name].coalitionName = sideName:upper()
@@ -742,6 +768,7 @@ function database:registerGroups()
                                 self.groupsByName[groupData.name].countryName = countryData.name
                                 self.groupsByName[groupData.name].categoryId = self.categoryId[categoryName]
                                 self:info("database:registerGroups(): registered group %s", groupData.name)
+                                self:registerObject(self.groupsByName[groupData.name])
                             end
                         end
                     end
@@ -762,16 +789,21 @@ function database:registerUnits()
                     for categoryName, objectData in pairs(countryData) do
                         if categoryName == "plane" or categoryName == "helicopter" or categoryName == "vehicle" or categoryName == "ship" then
                             for _, groupData in pairs(objectData.group) do
-                                for _, unitData in pairs(groupData.units) do
-                                    self.unitsByName[unitData.name] = util:deepCopy(unitData)
-                                    self.unitsByName[unitData.name].group = self.groupsByName[groupData.name]
-                                    self.unitsByName[unitData.name].typeName = unitData.type
+                                if groupData.lateActivation then
+                                    groupData.lateActivation = false
+                                end
+                                for unitId, unitData in pairs(groupData.units) do
+                                    self.unitsByName[unitData.name] = util:deepCopy(groupData)
+                                    self.unitsByName[unitData.name].name = unitData.name
+                                    self.unitsByName[unitData.name].units = {}
+                                    self.unitsByName[unitData.name].units[1] = util:deepCopy(unitData)
                                     self.unitsByName[unitData.name].coalitionId = coalition.side[sideName:upper()]
                                     self.unitsByName[unitData.name].coalitionName = coalition.side[sideName:upper()]
                                     self.unitsByName[unitData.name].countryId = countryData.id
                                     self.unitsByName[unitData.name].countryName = countryData.name
                                     self.unitsByName[unitData.name].categoryId = self.categoryId[categoryName]
                                     self:info("database:registerUnits(): registered unit %s", unitData.name)
+                                    self:registerObject(self.unitsByName[unitData.name])
                                 end
                             end
                         end
@@ -794,14 +826,12 @@ function database:registerStatics()
                         if objectCategory == "static" then
                             for _, staticData in pairs(objectData.group) do
                                 local staticName = staticData.units[1].name
-                                local staticCategory = StaticObject.getByName(staticName):getDesc().category
-                                self.staticsByName[staticName] = util:deepCopy(staticData.units[1])
+                                self.staticsByName[staticName] = util:deepCopy(staticData)
                                 self.staticsByName[staticName].coalitionId = coalition.side[sideName:upper()]
                                 self.staticsByName[staticName].coalitionName = sideName:upper()
                                 self.staticsByName[staticName].countryId = countryData.id
                                 self.staticsByName[staticName].countryName = countryData.name
-                                self.staticsByName[staticName].categoryId = staticCategory
-                                self:info("database:registerStatics(): registered static %s", staticName)
+                                self:registerObject(self.staticsByName[staticName])
                             end
                         end
                     end
@@ -824,7 +854,13 @@ function database:registerAirbases()
             ["categoryId"] = airdrome:getDesc().category
         }
         self:info("database:registerAirbases(): registered airbase %s", airbaseName)
+        self:registerObject(self.airbasesByName[airbaseName])
     end
+    return self
+end
+
+function database:registerObject(object)
+    database.objectsByName[object.name] = util:deepCopy(object)
     return self
 end
 
@@ -966,9 +1002,9 @@ schedule functions dynamically at a given time in the mission
 
 scheduler = {}
 
-function scheduler:new(func, args, time)
+function scheduler:new(func, params, delay)
     local self = util:inheritParent(self, scheduler)
-    self.functionId = timer.scheduleFunction(func, args, time)
+    self.functionId = timer.scheduleFunction(func, params, delay)
     return self
 end
 
@@ -1012,6 +1048,20 @@ function handler:new()
     local self = util:inheritParent(handler, base:new())
     self.events = {}
     world.addEventHandler(self)
+    return self
+end
+
+function handler:newCustomEvent(callback)
+    self[callback] = function(self, delay, ...)
+        local params = {...}
+        if delay > 0 then
+            scheduler:new(function()
+                self["OnEvent"..callback](self, unpack(params))
+            end, nil, timer.getTime() + delay)
+        else
+            self["OnEvent"..callback](self, unpack(params))
+        end
+    end
     return self
 end
 
@@ -1184,25 +1234,8 @@ end
 @authors Wizard
 
 @description
-the birth class is a wrapper for the DCS SSE API coalition.addGroup, providing the ability to birth unlimited groups
-dynamically from singular templates set to be late activated via the mission editor. These templates will carry over
-all the data related to it, including individual units/payloads/liveries/routes/tasks/etc. These templates can be
-changed further by the methods provided in the class. with methods such as birthFromAirbase you can alter which
-airbase an AI Aircraft will be born at along with unique parking spots and takeoff methods without even having
-the template placed there.
 
 @features
-- birth unlimted groups from a single late activated template group
-- birth a group with a unique alias
-- birth a group keeping the orignal group and unit names
-- birth new groups on a repeating schedule
-- birth from the original late activated group template
-- birth from a vec3 point on the map
-- birth from airbases at specific parking spots and taking off hot, cold, air, or from the runway
-- birth from a circle or quad trigger zone
-- automated rebirth on crashing, dying, landing, or shutting down engines
-- birth group methods to return the current groups status
-- inherited methods from #handler & #group
 
 @created Jan 30, 2022
 
@@ -1210,376 +1243,474 @@ the template placed there.
 
 birth = {}
 birth.takeoff = {
-    ["runway"] = {name = "Takeoff from runway",      type = "TakeOff",           action = "From Runway"},
-    ["hot"]    = {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
-    ["cold"]   = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"},
+    ["fromRunway"] =      {name = "Takeoff from runway",      type = "TakeOff",           action = "From Runway"},
+    ["fromParkingHot"] =  {name = "Takeoff from parking hot", type = "TakeOffParkingHot", action = "From Parking Area Hot"},
+    ["fromParkingCold"] = {name = "Takeoff from parking",     type = "TakeOffParking",    action = "From Parking Area"}
 }
 
---[[ create a new instance of a birth object
-- @param #birth self
-- @param #string groupName
-- @return #birth self
-]]
-
-function birth:new(groupName)
-    local self = util:inheritParents(self, {base:new(), handler:new()})
-    local template = Database:getBirthTemplate(groupName)
-    if not template then
-        self:error("birth:new(): group %s cannot be found in the database", groupName)
+function birth:new(templateName, nickname)
+    local self = util:inheritParent(self, birth)
+    self.baseTemplate, self.staticTemplate = Database:getTemplate(templateName)
+    if not self.baseTemplate then
+        self:Error("birth:new() | couldn't find template %s in database", templateName)
         return self
     end
-    self.templateName = groupName
-    self.template = template
-    self.birthCategory = self.template.birthCategory
-    self.countryId = self.template.countryId
-    self.categoryId = self.template.categoryId
-    self.coalitionId = self.template.coalitionId
-    self.count = 0
+
+    self.templateName = templateName
+    self.nickname = nickname
 
     self.keepGroupName = nil
     self.keepUnitNames = nil
-    self.alias = nil
-    self.groupLimit = nil
-    self.unitLimit = nil
-    self.groupName = nil
+
+    self.scheduledBirth = nil
+    self.scheduledCallback = nil
+    self.scheduledParams = nil
+    self.scheduledTime = nil
+
+    self.payloadId = nil
     self.payload = nil
 
-    self.template.countryId = nil
-    self.template.category = nil
-    self.template.coalition = nil
+    self.birthCount = 0
 
-    self.bornGroups = {}
-    self.bornUnits = {}
-    self.birthTemplate = {}
+    self.countryId = self.baseTemplate.countryId
+    self.categoryId = self.baseTemplate.categoryId
+
+    self.DCSGroup = nil
+    self.DCSStaticObject = nil
 
     return self
 end
 
-function birth:handleEvent(event)
-    self:handleGroupEvent(self, event, self.alias or self.templateName)
+function birth:newFromTemplate(template, nickname, staticTemplate)
+    local self = util:inheritParent(self, birth)
+    self.baseTemplate = util:deepCopy(template)
+    self.staticTemplate = staticTemplate
+    self.nickname = nickname
+
+    self.templateName = self.baseTemplate.name
+    self.keepGroupName = nil
+    self.keepUnitNames = nil
+    self.scheduledBirth = nil
+    self.scheduledCallback = nil
+    self.scheduledParams = nil
+    self.scheduledTime = nil
+
+    self.DCSGroup = nil
+    self.DCSStaticObject = nil
+
+    self.birthCount = 0
+
+    self.countryId = self.baseTemplate.countryId
+    self.categoryId = self.baseTemplate.categoryId
+
+    return self
+end
+--[[
+{
+    type -- required both static and unit
+
+    countryId -- required unit
+    categoryId -- required unit
+
+    category -- required static
+    shapeName -- required static
+
+    -- optional
+    skill
+    canDrive
+    alt
+    altType
+    heading
+    type
+    action
+    name
+    staticTemplate
+    waypoint
+]]
+function birth:newFromVarargs(varargs)
+    local birthTemplate
+    if varargs.staticTemplate then
+        birthTemplate = self:getStaticTemplate()
+        birthTemplate.countryId = varargs.countryId
+        birthTemplate.units[1].category = varargs.category
+        birthTemplate.units[1].shape_name = varargs.shapeName
+        birthTemplate.units[1].type = varargs.type
+        birthTemplate.units[1].heading = varargs.heading or 0
+    else
+        birthTemplate = self:getGroupTemplate()
+        birthTemplate.countryId = varargs.countryId
+        birthTemplate.categoryId = varargs.categoryId
+        birthTemplate.name = varargs.name or varargs.type
+        if varargs.units then
+            birthTemplate.units = varargs.units
+        else
+            birthTemplate.units[1].type = varargs.type
+            birthTemplate.units[1].skill = varargs.skill or "Random"
+            birthTemplate.units[1].heading = varargs.heading or 0
+            birthTemplate.units[1].playerCanDrive = varargs.canDrive or false
+        end
+        birthTemplate.route.points[1].alt = varargs.alt or 0
+        birthTemplate.route.points[1].alt_type = varargs.altType or "BARO"
+        if varargs.waypoint then
+            birthTemplate.route.points[1].type = varargs.waypoint.type or "Turning Point"
+            birthTemplate.route.points[1].action = varargs.waypoint.action or "Turning Point"
+        end
+    end
+    local self = birth:newFromTemplate(birthTemplate, varargs.nickname, varargs.staticTemplate)
     return self
 end
 
-function birth:keepName(keepGroupName, keepUnitNames)
+---------------------------------------------
+
+function birth:setKeepNames(keepGroupName, keepUnitNames)
     self.keepGroupName = keepGroupName
     self.keepUnitNames = keepUnitNames
     return self
 end
 
-function birth:setAlias(alias)
-    self.alias = alias
+function birth:setNickname(nickname)
+    self.nickname = nickname
     return self
 end
 
-function birth:setGroupLimit(groupLimit)
-    self.groupLimit = groupLimit
-    return self
-end
-
-function birth:setUnitLimit(unitLimit)
-    self.unitLimit = unitLimit
-    return self
-end
-
-function birth:setStaticLimit(staticLimit)
-    self.staticLimit = staticLimit
-    return self
-end
-
-function birth:scheduled(scheduleTime)
+function birth:setScheduler(callback, params, timer)
     self.scheduledBirth = true
-    self.scheduleTime = scheduleTime
+    self.scheduledCallback = callback
+    self.scheduledParams = params
+    self.scheduledTime = timer
     return self
 end
 
-function birth:birth()
-    self.birthTemplate = util:deepCopy(self.template)
-    self:_initialize()
+function birth:setPayload(unitId, payload)
+    self.payloadId = unitId
+    self.payload = payload
     return self
 end
 
-function birth:birthFromRandomVec3(vectorList, alt)
-    local randomNum = math.random(1, #vectorList)
-    self:birthFromVec3(vectorList[randomNum], alt)
+function birth:setLivery(unitId, livery)
+    self.liveryId = unitId
+    self.livery = livery
     return self
 end
 
-function birth:birthFromVec3(vec3, alt)
-    self:debug("birth:birthFromVec3(): preparing template %s for birth from a vec3", self.templateName)
-    self.birthTemplate = util:deepCopy(self.template)
-    if self.birthCategory == 1 then
-        if self.categoryId == Group.Category.GROUND then
-            alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
-        elseif self.categoryId == Group.Category.SHIP then
-            alt = 0
-        elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
-            if not alt then
-                self:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
-                return self
-            end
-            alt = alt
-        end
-        for _, unitData in pairs(self.birthTemplate.units) do
-            local sX = unitData.x or 0
-            local sY = unitData.y  or 0
-            local bX = self.birthTemplate.route.points[1].x or self.birthTemplate.x
-            local bY = self.birthTemplate.route.points[1].y or self.birthTemplate.y
-            local tX = vec3.x + (sX - bX)
-            local tY = vec3.z + (sY - bY)
-            unitData.alt = alt
-            unitData.x = tX
-            unitData.y = tY
-        end
-        self.birthTemplate.route.points[1].alt = alt
-        self.birthTemplate.route.points[1].x = vec3.x
-        self.birthTemplate.route.points[1].y = vec3.z
+-------------------------------------------
+
+function birth:getDCSGroup()
+    if self.DCSGroup:isExist() then
+        return self.DCSGroup
+    end
+end
+
+function birth:getDCSStaticObject()
+    if self.DCSStaticObject:isExist() then
+        return self.DCSStaticObject
+    end
+end
+
+function birth:getGroupTemplate()
+    local groupTemplate = {
+        ["visible"] = true,
+        ["lateActivation"] = false,
+        ["tasks"] = {},
+        ["uncontrollable"] = false,
+        ["task"] = "",
+        ["taskSelected"] = true,
+        ["route"] = {
+            ["points"] = {
+                [1] = {
+                    ["alt"] = 0,
+                    ["type"] = "Turning Point",
+                    ["ETA"] = 0,
+                    ["alt_type"] = "",
+                    ["formation_template"] = "",
+                    ["y"] = 0,
+                    ["x"] = 0,
+                    ["ETA_locked"] = true,
+                    ["speed"] = 0,
+                    ["action"] = "Turning Point",
+                    ["task"] = {
+                        ["id"] = "ComboTask",
+                        ["params"] = {
+                            ["tasks"] = {},
+                        },
+                    },
+                    ["speed_locked"] = true,
+                },
+            },
+        },
+        ["hidden"] = false,
+        ["units"] = {
+            [1] = {
+                ["type"] = "",
+                ["skill"] = "",
+                ["y"] = 0,
+                ["x"] = 0,
+                ["name"] = "",
+                ["heading"] = 0,
+                ["playerCanDrive"] = true,
+            }
+        },
+        ["y"] = 0,
+        ["x"] = 0,
+        ["name"] = "",
+        ["start_time"] = 0,
+    }
+    return groupTemplate
+end
+
+function birth:getStaticTemplate()
+    local staticTemplate = {
+        ["heading"] = 0,
+        ["route"] = {
+            ["points"] = {
+                [1] = {
+                    ["alt"] = 0,
+                    ["type"] = "",
+                    ["name"] = "",
+                    ["y"] = 0,
+                    ["speed"] = 0,
+                    ["x"] = 0,
+                    ["formation_template"] = "",
+                    ["action"] = "",
+                },
+            },
+        },
+        ["units"] = {
+            [1] = {
+                ["category"] = "",
+                ["shape_name"] = "",
+                ["type"] = "",
+                ["rate"] = 0,
+                ["y"] = 0,
+                ["x"] = 0,
+                ["name"] = "",
+                ["heading"] = 0,
+            },
+        },
+        ["y"] = 0,
+        ["x"] = 0,
+        ["name"] = "",
+        ["dead"] = false,
+    }
+    return staticTemplate
+end
+
+-------------------------------------------
+
+function birth:birthToWorld()
+    self._birthTemplate = util:deepCopy(self.baseTemplate)
+    self:_initializeTemplate()
+    return self
+end
+
+function birth:birthScheduled(callback, params, time)
+    callback = self.scheduledCallback or callback
+    params = self.scheduledParams or params
+    time = self.scheduledTime or time
+    scheduler:new(function() callback(unpack(params)) end, nil, timer.getTime() + time)
+end
+
+function birth:birthFromTemplate(template, country, category, static)
+    if static then
+        local staticObject = coalition.addStaticObject(country, template)
+        template.countryId = country
+        Database:addStaticObject(template)
+        return staticObject
     else
-        alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
-        self.birthTemplate.alt = alt
-        self.birthTemplate.x = vec3.x
-        self.birthTemplate.y = vec3.z
+        local group = coalition.addGroup(country, category, template)
+        template.countryId = country
+        template.categoryId = category
+        Database:addGroupObject(template)
+        return group
     end
-    self:_initialize()
+end
+
+function birth:birthFromZone(birthZone, alt)
+    local birthZoneVec3 = birthZone:getVec3()
+    self:birthFromVec3(birthZoneVec3, alt)
     return self
 end
 
-function birth:birthFromRandomAirbase(airbaseList, takeoffType)
-    local randomNum = math.random(1, #airbaseList)
-    self:birthFromAirbase(airbaseList[randomNum], takeoffType)
+function birth:birthFromZoneOnNearestRoad(birthZone)
+    local birthZoneVec3 = birthZone:getVec3()
+    self:birthFromVec3OnNearestRoad(birthZoneVec3)
     return self
-end
-
-function birth:birthFromAirbase(airbaseName, takeoffType, parkingSpots)
-    self.birthTemplate = util:deepCopy(self.template)
-    local birthAirbase = airbase:getByName(airbaseName)
-    if birthAirbase then
-        local birthAirbaseVec3 = birthAirbase:getPoint()
-        local birthAirbaseId = birthAirbase:getID()
-        local birthAirbaseCategory = birthAirbase:getCategory()
-        self.birthTemplate.route.points[1].type = takeoffType.type
-        self.birthTemplate.route.points[1].action = takeoffType.action
-        self.birthTemplate.route.points[1].x = birthAirbaseVec3.x
-        self.birthTemplate.route.points[1].y = birthAirbaseVec3.z
-        if birthAirbaseCategory == 0 then -- airbases
-            self.birthTemplate.route.points[1].airdromeId = birthAirbaseId
-            env.error(birthAirbaseId)
-        elseif birthAirbaseCategory == 1 or birthAirbaseCategory == 2 then
-            self.birthTemplate.route.points[1].helipadId = birthAirbaseId
-        end
-        if parkingSpots then
-            if birthAirbaseCategory ~= 2 then
-                local parkingData = birthAirbase:getTerminalData(parkingSpots)
-                self.birthTemplate.route.points[1].x = parkingData[1].termVec3.x
-                self.birthTemplate.route.points[1].y = parkingData[1].termVec3.z
-                for unitId, unitData in ipairs(self.birthTemplate.units) do
-                    unitData.parking = parkingData[unitId].termIndex
-                    unitData.x = parkingData[unitId].termVec3.x
-                    unitData.y = parkingData[unitId].termVec3.z
-                end
-            end
-        else
-            for _, unitData in ipairs(self.birthTemplate.units) do
-                unitData.x = birthAirbaseVec3.x
-                unitData.y = birthAirbaseVec3.z
-            end
-        end
-        self:_initialize()
-        return self
-    end
 end
 
 function birth:birthFromRandomZone(zoneList, alt)
     local randomNum = math.random(1, #zoneList)
-    self:birthFromZone(zoneList[randomNum], alt)
+    local randomZone = zoneList[randomNum]
+    self:birthFromZone(randomZone, alt)
     return self
 end
 
-function birth:birthFromZone(zoneName, alt)
-    local birthZone = zone:getByName(zoneName)
-    if birthZone then
-        self.birthTemplate = util:deepCopy(self.template)
-        local birthZoneVec3 = birthZone:getVec3()
-        if self.birthCategory ~= 3 then
-            if self.categoryId == Group.Category.GROUND then
-                alt = land.getHeight({["x"] = birthZoneVec3.x, ["y"] = birthZoneVec3.z})
-            elseif self.categoryId == Group.Category.SHIP then
-                alt = 0
-            elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
-                if not alt then
-                    self:error("birth:birthFromVec3(): %s requires an altitude to be born from a vec3", self.templateName)
-                    return self
-                end
-                alt = alt
-            end
-            for _, unitData in pairs(self.birthTemplate.units) do
-                local sX = unitData.x or 0
-                local sY = unitData.y  or 0
-                local bX = self.birthTemplate.route.points[1].x or self.birthTemplate.x
-                local bY = self.birthTemplate.route.points[1].y or self.birthTemplate.y
-                local tX = birthZoneVec3.x + (sX - bX)
-                local tY = birthZoneVec3.z + (sY - bY)
-                unitData.alt = alt
-                unitData.x = tX
-                unitData.y = tY
-            end
-            self.birthTemplate.route.points[1].alt = alt
-            self.birthTemplate.route.points[1].x = birthZoneVec3.x
-            self.birthTemplate.route.points[1].y = birthZoneVec3.z
+function birth:birthFromRandomVec3InZone(birthZone, alt)
+    local birthZoneVec3 = birthZone:getVec3()
+    local birthZoneRadius = birthZone:getRadius()
+    local radius = birthZoneRadius * 0.75
+    birthZoneVec3.x = birthZoneVec3.x + math.random(radius * -1, radius)
+    birthZoneVec3.z = birthZoneVec3.z + math.random(radius * -1, radius)
+    self:birthFromVec3(birthZoneVec3, alt)
+    return self
+end
+
+function birth:birthFromRandomVec3InRadius(vec3, minRadius, maxRadius, alt)
+    local vec3 = util:deepCopy(vec3)
+    local radius = math.random(minRadius, maxRadius)
+    radius = radius * 0.75
+    vec3.x = vec3.x + math.random(radius * -1, radius)
+    vec3.z = vec3.z + math.random(radius * -1, radius)
+    self:birthFromVec3(vec3, alt)
+    return self
+end
+
+function birth:birthFromVec3OnNearestRoad(vec3)
+    local x, z = land.getClosestPointOnRoads("roads", vec3.x, vec3.z)
+    vec3.x = x
+    vec3.z = z
+    self:birthFromVec3(vec3)
+    return self
+end
+
+function birth:birthFromVec3(vec3, alt)
+    self._birthTemplate = util:deepCopy(self.baseTemplate)
+    if self.staticTemplate or self.categoryId == Group.Category.GROUND then
+        alt = land.getHeight({["x"] = vec3.x, ["y"] = vec3.z})
+    elseif self.categoryId == Group.Category.SHIP then
+        alt = 0
+    elseif self.categoryId == Group.Category.AIRPLANE or self.categoryId == Group.Category.HELICOPTER then
+        if alt then
+            alt = alt
         else
-            alt = land.getHeight({["x"] = birthZoneVec3.x, ["y"] = birthZoneVec3.z})
-            self.birthTemplate.alt = alt
-            self.birthTemplate.x = birthZoneVec3.x
-            self.birthTemplate.y = birthZoneVec3.z
+            --self:Error("birth:birthFromVec3() | %s requires an altitude to be born from a vec3", self.templateName)
+            return self
         end
-        self:_initialize()
+    end
+    for _, unitData in pairs(self._birthTemplate.units) do
+        local sX = unitData.x or 0
+        local sY = unitData.y  or 0
+        local bX = self._birthTemplate.route.points[1].x or self._birthTemplate.x
+        local bY = self._birthTemplate.route.points[1].y or self._birthTemplate.y
+        local tX = vec3.x + (sX - bX)
+        local tY = vec3.z + (sY - bY)
+        unitData.alt = alt
+        unitData.x = tX
+        unitData.y = tY
+    end
+    self._birthTemplate.route.points[1].alt = alt
+    self._birthTemplate.route.points[1].x = vec3.x
+    self._birthTemplate.route.points[1].y = vec3.z
+    self:_initializeTemplate()
+    return self
+end
+
+function birth:birthFromAirbaseRunway(airbaseName, terminals)
+    self:birthFromAirbase(airbaseName, birth.takeoff.fromRunway, terminals)
+    return self
+end
+
+function birth:birthFromAirbaseParkingHot(airbaseName, terminals)
+    self:birthFromAirbase(airbaseName, birth.takeoff.fromParkingHot, terminals)
+    return self
+end
+
+function birth:birthFromAirbaseParkingCold(airbaseName, terminals)
+    self:birthFromAirbase(airbaseName, birth.takeoff.fromParkingCold, terminals)
+    return self
+end
+
+function birth:birthFromAirbase(airbaseName, takeoff, terminals)
+    self._birthTemplate = util:deepCopy(self.baseTemplate)
+    local birthAirbase = airbase:getByName(airbaseName)
+    if birthAirbase then
+        local birthAirbaseVec3 = birthAirbase:getPoint()
+        local birthAirbaseId = birthAirbase:getID()
+        local birthAirbaseCategory = birthAirbase:getDesc().category
+        self._birthTemplate.route.points[1].type = takeoff.type
+        self._birthTemplate.route.points[1].action = takeoff.action
+        if birthAirbaseCategory == 0 then -- airbases
+            self._birthTemplate.route.points[1].airdromeId = birthAirbaseId
+        elseif birthAirbaseCategory == 1 or birthAirbaseCategory == 2 then -- ships and helipads
+            self._birthTemplate.route.points[1].helipadId = birthAirbaseId
+        end
+        if terminals then
+            if type(terminals) ~= "table" and type(terminals) == "number" then
+                terminals = {terminals}
+            end
+            local terminalData = birthAirbase:getTerminalData(airbaseName, terminals)
+            self._birthTemplate.route.points[1].x = terminalData[1].termVec3.x
+            self._birthTemplate.route.points[1].y = terminalData[1].termVec3.z
+            for unitId, unitData in ipairs(self._birthTemplate.units) do
+                unitData.parking = terminalData[unitId].termIndex
+                unitData.x = terminalData[unitId].termVec3.x
+                unitData.y = terminalData[unitId].termVec3.z
+            end
+        else
+            self._birthTemplate.route.points[1].x = birthAirbaseVec3.x
+            self._birthTemplate.route.points[1].y = birthAirbaseVec3.z
+        end
+        self:_initializeTemplate()
         return self
     end
 end
 
-function birth:_updateActiveGroups()
-    self.activeGroups = {}
-    for _, groupName in pairs(self.bornGroups) do
-        if group:getByName(groupName) then
-            if group:getByName(groupName):isAlive() then
-                self.activeGroups[#self.activeGroups+1] = groupName
-            end
-        end
-    end
+-------------------------------------------
+
+function birth:_initializeTemplate()
+    self:_initializeNames()
+    self:_addToWorld()
     return self
 end
 
-function birth:_updateActiveUnits()
-    self.activeUnits = {}
-    for _, unitName in pairs(self.bornUnits) do
-        if unit:getByName(unitName) then
-            if unit:getByName(unitName):isAlive() then
-                self.activeUnits[#self.activeUnits+1] = unitName
-            end
-        end
-    end
-    return self
-end
-
-function birth:_updateActiveStatics()
-    self.activeStatics = {}
-    for _, staticName in pairs(self.bornStatics) do
-        if static:getByName(staticName) then
-            if static:getByName(staticName):isAlive() then
-                self.activeStatics[#self.activeStatics+1] = staticName
-            end
-        end
-    end
-    return self
-end
-
-function birth:_witihinGroupLimit()
-    self:_updateActiveGroups()
-    if #self.activeGroups < self.groupLimit then
-        return true
-    end
-    return false
-end
-
-function birth:_withinUnitLimit()
-    self:_updateActiveUnits()
-    if #self.activeUnits + #self.template.units <= self.unitLimit then
-        return true
-    end
-    return false
-end
-
-function birth:_withinStaticLimit()
-    self:_updateActiveStatics()
-    if #self.activeStatics <= self.staticLimit then
-        return true
-    end
-    return false
-end
-
-function birth:_initialize()
-    if self.birthCategory ~= 3 then
-        if not self.groupLimit and not self.unitLimit then
-            -- not group limit and not unit limit
-            self:_addGroup()
-            return self
-        elseif self.groupLimit and self.unitLimit then
-            if self:_witihinGroupLimit() and self:_withinUnitLimit() then
-                self:_addGroup()
-                return self
-            end
-        elseif self.groupLimit and not self.unitLimit then
-            if self:_witihinGroupLimit() then
-                self:_addGroup()
-                return self
-            end
-        elseif not self.groupLimit and self.unitLimit then
-            if self:_withinUnitLimit() then
-                self:_addGroup()
-                return self
-            end
-        end
-    else
-        if self.staticLimit then
-            if self:_withinStaticLimit() then
-                self:_addStatic()
-                return self
-            end
-        else
-            self:_addStatic()
-            return self
-        end
-    end
-end
-
-function birth:_addGroup()
+function birth:_initializeNames()
     if not self.keepGroupName then
-        if self.alias then
-            self.groupName = self.alias
-            self.birthTemplate.name = self.groupName
+        if self.nickname then
+            self._birthTemplate.name = self.nickname
         else
-            self.groupName = self.template.name.." #"..self.count + 1
-            self.birthTemplate.name = self.groupName
+            if not self.staticTemplate then
+                self._birthTemplate.name = self._birthTemplate.name.." #"..self.birthCount + 1
+            end
         end
     end
     if not self.keepUnitNames then
-        for unitId = 1, #self.template.units do
-            self.birthTemplate.units[unitId].name = self.birthTemplate.name.."-"..unitId
+        if self.staticTemplate then
+            self._birthTemplate.units[1].name = self._birthTemplate.units[1].name.." #"..self.birthCount + 1
+        else
+            for unitId = 1, #self._birthTemplate.units do
+                self._birthTemplate.units[unitId].name = self._birthTemplate.name.."-"..unitId
+            end
         end
     end
-    if self.birthTemplate.lateActivation then
-        self.birthTemplate.lateActivation = false
-    end
-    coalition.addGroup(self.countryId, self.categoryId, self.birthTemplate)
-    self.count = self.count + 1
-    self.bornGroups[#self.bornGroups+1] = self.groupName
-    Database:addGroupObject(self.birthTemplate)
-    for _, unitData in pairs(self.birthTemplate.units) do
-        self.bornUnits[#self.bornUnits+1] = unitData.name
-        Database:addUnitObject(unitData)
-    end
-    if self.scheduledBirth then
-        if self.schedulerId then self.schedulerId = nil end
-        local scheduledBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
-        self.schedulerId = scheduledBirth.functionId
-    end
-    self:debug("birth:_addGroup(): %s has been born into the world", self.groupName)
     return self
 end
 
-function birth:_addStatic()
-    if not self.keepUnitNames and self.birthCategory ~= 3 then
-        self.birthTemplate.name = self.templateName.." #"..self.count + 1
+-------------------------------------------
+
+function birth:_addToWorld()
+    if self.staticTemplate then
+        self.DCSStaticObject = coalition.addStaticObject(self.countryId, self._birthTemplate.units[1])
+        self.birthCount = self.birthCount + 1
+        --self:Debug("birth:_AddToWorld() | %s has been added into the world", self._birthTemplate.units[1].name)
+        Database:addStaticObject(self._birthTemplate)
+    else
+        if self.payload then
+            self._birthTemplate.units[self.payloadId].payload = self.payload
+        end
+        if self.livery then
+            self._birthTemplate.units[self.liveryId].livery_id = self.payload
+        end
+        self.DCSGroup = coalition.addGroup(self.countryId, self.categoryId, self._birthTemplate)
+        self.birthCount = self.birthCount + 1
+        --self:Debug("birth:_AddToWorld() | %s has been added into the world", self._birthTemplate.name)
+        Database:addGroupObject(self._birthTemplate)
     end
-    coalition.addStaticObject(self.countryId, self.birthTemplate)
-    self.count = self.count + 1
-    Database:addStaticObject(self.birthTemplate)
-    if self.scheduledBirth then
-        if self.schedulerId then self.schedulerId = nil end
-        local scheduledBirth = scheduler:new(birth.initialize, self, self.scheduleTime)
-        self.schedulerId = scheduledBirth.functionId
+    if self.scheduledbirth then
+        self:birthScheduled()
     end
-    self:debug("birth:_addStatic(): %s has been born into the world", self.birthTemplate.name)
+    return self
 end
+
+-------------------------------------------
 
 zone = {}
 
@@ -1654,7 +1785,6 @@ function zone:pointInCircle(point)
         local vec3 = util:makeVec3(point)
         local zoneVec3 = self:getVec3()
         local radius = self.zone.radius
-        radius = radius or self.zone.radius
         if ((vec3.x - zoneVec3.x)^2 + (vec3.z - zoneVec3.z)^2)^0.5 <= radius then
             return true
         end
@@ -1853,9 +1983,9 @@ end
 
 object = {}
 
-function object:getByName(objectName, database)
+function object:getByName(objectName)
     local self = util:inheritParents(self, {base:new(), handler:new()})
-    local object = Database:getObject(objectName, database)
+    local object = Database:getObject(objectName)
     if not object then
         self:error("object:new(): object %s could not be found in the database", objectName)
         return self
@@ -1866,17 +1996,23 @@ function object:getByName(objectName, database)
 end
 
 function object:getCoalition()
-    return self.object.coalitionId, self.object.coalitionName
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return dcsObject:getCoalition(dcsObject)
+    end
 end
 
 function object:getCountry()
-    return self.object.countryId, self.object.countryName
+    local dcsObject = self:getDCSObject()
+    if dcsObject then
+        return dcsObject:getCountry(dcsObject)
+    end
 end
 
 function object:getCategory()
     local dcsObject = self:getDCSObject()
     if dcsObject then
-        return Object.getCategory(dcsObject)
+        return dcsObject:getCategory(dcsObject)
     end
 end
 
@@ -1950,7 +2086,7 @@ end
 unit = {}
 
 function unit:getByName(unitName)
-    local self = util:inheritParent(self, object:getByName(unitName, Database.unitsByName))
+    local self = util:inheritParent(self, object:new(unitName))
     if not self.object then
         self:error("unit:getByName(): unit object %s could not be found in the database", unitName)
         return self
@@ -1999,6 +2135,16 @@ function unit:isAlive()
         end
     end
     return false
+end
+
+function unit:getPayload()
+    local payload = util:deepCopy(self.object.units[1].payload)
+    return payload
+end
+
+function unit:getLivery()
+    local livery = util:deepCopy(self.object.units[1].livery_id)
+    return livery
 end
 
 --
@@ -2151,7 +2297,7 @@ end
 airbase = {}
 
 function airbase:getByName(airbaseName)
-    local self = util:inheritParent(self, object:getByName(airbaseName, Database.airbasesByName))
+    local self = util:inheritParent(self, object:getByName(airbaseName))
     if not self.object then
         self:error("airbase:getByName(): unit object %s could not be found in the database", airbaseName)
         return self
@@ -2174,24 +2320,68 @@ function airbase:getCategory()
     end
 end
 
-function airbase:getTerminalData(parkingSpots)
-    local parking = self:getParking()
-    if type(parkingSpots) == "number" then
-        parkingSpots = {parkingSpots}
+function airbase:getOpenParkingSpots(terminalType)
+    local openParkingSpots = {}
+    for _, spot in pairs(self:getParking()) do
+        if not spot.TO_AC then
+            if terminalType then
+                if spot.Term_Type == terminalType then
+                    openParkingSpots[#openParkingSpots+1] = {
+                        termIndex = spot.Term_Index,
+                        termVec3 = spot.vTerminalPos
+                    }
+                end
+            else
+                openParkingSpots[#openParkingSpots+1] = {
+                    termIndex = spot.Term_Index,
+                    termVec3 = spot.vTerminalPos
+                }
+            end
+        end
     end
-    if parking then
-        local terminalData = {}
-        for _, parkingData in pairs(parking) do
-            for _, parkingSpot in pairs(parkingSpots) do
-                if parkingData.Term_Index == parkingSpot then
+    return openParkingSpots
+end
+
+function airbase:getFirstOpenParkingSpot(terminalType)
+    for _, spot in pairs(self:getParking()) do
+        if not spot.TO_AC then
+            if terminalType then
+                if spot.Term_Type == terminalType then
+                    return {
+                        termIndex = spot.Term_Index,
+                        termVec3 = spot.vTerminalPos
+                    }
+                end
+            else
+                return {
+                    termIndex = spot.Term_Index,
+                    termVec3 = spot.vTerminalPos
+                }
+            end
+        end
+    end
+end
+
+function airbase:getSpotsData(spots)
+    local terminalData = {}
+    for _, spot in pairs(self:getParking()) do
+        if not spot.TO_AC then
+            for _, termIndex in pairs(spots) do
+                if spot.Term_Index == termIndex then
                     terminalData[#terminalData+1] = {
-                        ["termIndex"] = parkingSpot,
-                        ["termVec3"] = parkingData.vTerminalPos
+                        termIndex = spot.Term_Index,
+                        termVec3 = spot.vTerminalPos
                     }
                 end
             end
         end
-        return terminalData
+    end
+    return terminalData
+end
+
+function airbase:markParkingSpots()
+    for _, spot in pairs(self:getParking()) do
+        trigger.action.markToAll(-1, "Terminal Type: "..spot.Term_Type.."\nTerminal Index: "..spot.Term_Index, spot.vTerminalPos)
     end
 end
 
@@ -2265,7 +2455,7 @@ end
 static = {}
 
 function static:getByName(staticName)
-    local self = util:inheritParent(self, object:getByName(staticName, Database.staticsByName))
+    local self = util:inheritParent(self, object:getByName(staticName))
     if not self.object then
         self:error("static:getByName(): unit object %s could not be found in the database", staticName)
         return self
@@ -2336,14 +2526,19 @@ end
 group = {}
 
 function group:getByName(groupName)
-    local self = util:inheritParents(self, {base:new(), handler:new()})
-    local group = Database:getGroupObject(groupName, Database.groupsByName)
+    local self = util:inheritParent(self, handler:new())
+    local group = Database:getGroupObject(groupName)
     if not group then
         self:error("group:getByName(): group object %s could not be found in the database", groupName)
         return self
     end
     self.group = group
     self.groupName = groupName
+    return self
+end
+
+function group:handleEvent(event)
+    self:handleGroupEvent(event)
     return self
 end
 
