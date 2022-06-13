@@ -39,5 +39,5 @@ globals = {
     "airbase",
     "static",
     "group",
-    "databases"
+    "Database"
 }

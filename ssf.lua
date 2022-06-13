@@ -1582,7 +1582,7 @@ function birth:birthFromVec3(vec3, alt)
         if alt then
             alt = alt
         else
-            --self:Error("birth:birthFromVec3() | %s requires an altitude to be born from a vec3", self.templateName)
+            --self:error("birth:birthFromVec3() | %s requires an altitude to be born from a vec3", self.templateName)
             return self
         end
     end
@@ -1690,7 +1690,7 @@ function birth:_addToWorld()
     if self.staticTemplate then
         self.DCSStaticObject = coalition.addStaticObject(self.countryId, self._birthTemplate.units[1])
         self.birthCount = self.birthCount + 1
-        --self:Debug("birth:_AddToWorld() | %s has been added into the world", self._birthTemplate.units[1].name)
+        --self:debug("birth:_AddToWorld() | %s has been added into the world", self._birthTemplate.units[1].name)
         Database:addStaticObject(self._birthTemplate)
     else
         if self.payload then
@@ -1701,7 +1701,7 @@ function birth:_addToWorld()
         end
         self.DCSGroup = coalition.addGroup(self.countryId, self.categoryId, self._birthTemplate)
         self.birthCount = self.birthCount + 1
-        --self:Debug("birth:_AddToWorld() | %s has been added into the world", self._birthTemplate.name)
+        --self:debug("birth:_AddToWorld() | %s has been added into the world", self._birthTemplate.name)
         Database:addGroupObject(self._birthTemplate)
     end
     if self.scheduledbirth then
